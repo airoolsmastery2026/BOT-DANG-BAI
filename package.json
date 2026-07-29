@@ -1,0 +1,41 @@
+{
+  "name": "customer-finder-pro",
+  "version": "1.0.0",
+  "description": "Ứng dụng tìm kiếm và lọc khách hàng tiềm năng từ các nền tảng mạng xã hội",
+  "private": true,
+  "homepage": "./",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "lucide-react": "^0.263.1"
+  },
+  "devDependencies": {
+    "react-scripts": "5.0.1",
+    "tailwindcss": "^3.3.2",
+    "postcss": "^8.4.24",
+    "autoprefixer": "^10.4.14",
+    "eslint": "^8.40.0",
+    "prettier": "^2.8.8"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "lint": "eslint src --ext .js,.jsx",
+    "format": "prettier --write \"src/**/*.{js,jsx}\""
+  },
+  "eslintConfig": {
+    "extends": ["react-app"]
+  },
+  "browserslist": {
+    "production": [">0.2%", "not dead", "not op_mini all"],
+    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=6.0.0"
+  },
+  "keywords": ["facebook", "instagram", "tiktok", "customer", "finder", "social-media"],
+  "license": "MIT"
+}
