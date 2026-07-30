@@ -6,3 +6,5 @@ build/
 npm-debug.log*
 server/zalo-messages.json
 server/zalo-messages.json.tmp
+server/linkedin-posts.json
+server/linkedin-posts.json.tmp
