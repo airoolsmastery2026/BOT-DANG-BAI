@@ -28,6 +28,7 @@ jobs:
         run: |
           node --check server/zalo-server.js
           node --check server/linkedin-server.js
+          node --check server/real-estate-server.js
 
       - name: Build frontend
         run: npm run build
