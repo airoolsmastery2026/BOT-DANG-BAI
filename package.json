@@ -25,7 +25,8 @@
     "lint": "eslint src --ext .js,.jsx",
     "format": "prettier --write \"src/**/*.{js,jsx}\"",
     "zalo:server": "node server/zalo-server.js",
-    "linkedin:server": "node server/linkedin-server.js"
+    "linkedin:server": "node server/linkedin-server.js",
+    "real-estate:server": "node server/real-estate-server.js"
   },
   "eslintConfig": {
     "extends": ["react-app"]
