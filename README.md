@@ -22,21 +22,22 @@
 
 ✅ **Lên lịch đăng bài** — đăng ngay hoặc hẹn giờ, lặp lại hàng ngày/hàng tuần, đăng cùng lúc lên nhiều nền tảng
 
-✅ **Zalo OA Control** — gửi ngay hoặc lên lịch tin nhắn văn bản tới người dùng đã tương tác/cấp quyền cho Official Account
+✅ **Zalo OA Control** — giao diện kết nối trực tiếp tới Zalo server, gửi ngay, lên lịch, xem hàng đợi và lịch sử
 
-✅ **Zalo server scheduler** — chạy nền bằng Node.js, lưu hàng đợi trên server, retry tối đa 3 lần và không phụ thuộc tab trình duyệt
+✅ **Zalo server scheduler** — chạy nền bằng Node.js, giữ OA token ở server, retry tối đa 3 lần và không phụ thuộc tab trình duyệt
 
 ---
 
 ## 💬 Tích hợp Zalo Official Account
 
-Tab **Zalo OA** hỗ trợ thử nghiệm trực tiếp trong trình duyệt:
+Tab **Zalo OA** hiện sử dụng REST API của `server/zalo-server.js`:
 
-- Nhập OA Access Token và `user_id` người nhận.
-- Gửi tin nhắn văn bản ngay.
-- Lên lịch gửi tin nhắn.
-- Hàng đợi và lịch sử gửi.
-- Công tắc tự kiểm tra tin đến hạn mỗi 60 giây.
+- Frontend chỉ lưu URL server và API key; không lưu OA Access Token.
+- Kiểm tra trạng thái server và số tin đang chờ.
+- Gửi ngay hoặc lên lịch theo `user_id`.
+- Đồng bộ hàng đợi và lịch sử từ server.
+- Xử lý hàng đợi thủ công hoặc để scheduler tự chạy mỗi 60 giây.
+- Hiển thị số lần retry và lỗi cuối cùng.
 
 ### Chạy scheduler Zalo phía server
 
@@ -55,6 +56,13 @@ ZALO_OA_ACCESS_TOKEN=
 ZALO_SERVER_API_KEY=
 ZALO_SERVER_PORT=8787
 ZALO_ALLOWED_ORIGIN=http://localhost:3000
+```
+
+Sau khi server chạy, mở tab **Zalo OA** và nhập:
+
+```text
+Server URL: http://localhost:8787
+API key: giá trị ZALO_SERVER_API_KEY
 ```
 
 REST API:
@@ -82,8 +90,8 @@ Dữ liệu mặc định được lưu tại `server/zalo-messages.json`. Khôn
 
 - Đây là **Zalo Official Account OpenAPI**, không phải API đăng bài lên nhật ký cá nhân.
 - OA chỉ gửi được theo phạm vi quyền, chính sách và điều kiện tương tác do Zalo quy định.
-- Chế độ frontend lưu token trong `localStorage`, chỉ phù hợp thử nghiệm cục bộ.
-- Production nên dùng `server/zalo-server.js`, secret manager, HTTPS, database thật, refresh-token flow, webhook và audit log.
+- API key của dashboard vẫn nằm trong trình duyệt của người vận hành; production phải dùng HTTPS, CORS giới hạn và tài khoản quản trị riêng.
+- Trước production cần bổ sung secret manager, database thật, refresh-token flow, webhook, idempotency và audit log.
 
 ---
 
@@ -115,10 +123,23 @@ Truy cập `http://localhost:3000`.
 
 ---
 
+## ✅ Kiểm tra chất lượng
+
+GitHub Actions tự động chạy khi mở Pull Request hoặc push vào `main`:
+
+```bash
+npm ci
+node --check server/zalo-server.js
+npm run build
+```
+
+---
+
 ## 📁 Cấu Trúc Dự Án
 
 ```text
 customer-finder-pro/
+├── .github/workflows/ci.yml
 ├── public/
 │   └── index.html
 ├── src/
@@ -126,6 +147,7 @@ customer-finder-pro/
 │   ├── AdvancedCustomerFinder.jsx
 │   ├── PostScheduler.jsx
 │   ├── ZaloControl.jsx
+│   ├── zalo_server_api.js
 │   ├── zalo_api.js
 │   ├── api_handler.js
 │   ├── content_generator.js
