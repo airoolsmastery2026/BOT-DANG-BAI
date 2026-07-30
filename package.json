@@ -1,7 +1,7 @@
 {
   "name": "customer-finder-pro",
   "version": "1.0.0",
-  "description": "Ứng dụng tìm kiếm và lọc khách hàng tiềm năng từ các nền tảng mạng xã hội",
+  "description": "Ứng dụng tìm kiếm, tạo nội dung và lên lịch đăng đa nền tảng",
   "private": true,
   "homepage": "./",
   "dependencies": {
@@ -23,7 +23,8 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "lint": "eslint src --ext .js,.jsx",
-    "format": "prettier --write \"src/**/*.{js,jsx}\""
+    "format": "prettier --write \"src/**/*.{js,jsx}\"",
+    "zalo:server": "node server/zalo-server.js"
   },
   "eslintConfig": {
     "extends": ["react-app"]
@@ -36,6 +37,6 @@
     "node": ">=18.0.0",
     "npm": ">=6.0.0"
   },
-  "keywords": ["facebook", "instagram", "tiktok", "customer", "finder", "social-media"],
+  "keywords": ["facebook", "instagram", "tiktok", "zalo", "customer", "scheduler", "social-media"],
   "license": "MIT"
 }
