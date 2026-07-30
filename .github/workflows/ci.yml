@@ -24,8 +24,10 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Check Zalo server syntax
-        run: node --check server/zalo-server.js
+      - name: Check backend syntax
+        run: |
+          node --check server/zalo-server.js
+          node --check server/linkedin-server.js
 
       - name: Build frontend
         run: npm run build
