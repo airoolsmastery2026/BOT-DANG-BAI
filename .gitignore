@@ -4,3 +4,5 @@ build/
 .env.local
 .DS_Store
 npm-debug.log*
+server/zalo-messages.json
+server/zalo-messages.json.tmp
