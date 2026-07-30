@@ -18,17 +18,19 @@
 
 ✅ Tìm kiếm tự động mỗi 5 phút (tuỳ chọn)
 
-✅ **Bot viết bài tự động** — sinh nội dung theo chủ đề, có tinh chỉnh giọng văn/độ dài/emoji/hashtag/CTA, chọn template hoặc gọi AI (OpenAI/Anthropic bằng key của bạn)
+✅ **Bot viết bài tự động** — sinh nội dung theo chủ đề, có tinh chỉnh giọng văn/độ dài/emoji/hashtag/CTA, chọn template hoặc gọi AI
 
 ✅ **Lên lịch đăng bài** — đăng ngay hoặc hẹn giờ, lặp lại hàng ngày/hàng tuần, đăng cùng lúc lên nhiều nền tảng
 
 ✅ **Zalo OA Control** — gửi ngay hoặc lên lịch tin nhắn văn bản tới người dùng đã tương tác/cấp quyền cho Official Account
 
+✅ **Zalo server scheduler** — chạy nền bằng Node.js, lưu hàng đợi trên server, retry tối đa 3 lần và không phụ thuộc tab trình duyệt
+
 ---
 
 ## 💬 Tích hợp Zalo Official Account
 
-Tab **Zalo OA** cung cấp:
+Tab **Zalo OA** hỗ trợ thử nghiệm trực tiếp trong trình duyệt:
 
 - Nhập OA Access Token và `user_id` người nhận.
 - Gửi tin nhắn văn bản ngay.
@@ -36,59 +38,80 @@ Tab **Zalo OA** cung cấp:
 - Hàng đợi và lịch sử gửi.
 - Công tắc tự kiểm tra tin đến hạn mỗi 60 giây.
 
+### Chạy scheduler Zalo phía server
+
+Bản server dùng Node.js 18+, không cần cài thêm package:
+
+```bash
+cp .env.example .env
+# Nạp các biến môi trường theo cách phù hợp với hệ điều hành/deployment của bạn
+npm run zalo:server
+```
+
+Các biến quan trọng:
+
+```env
+ZALO_OA_ACCESS_TOKEN=
+ZALO_SERVER_API_KEY=
+ZALO_SERVER_PORT=8787
+ZALO_ALLOWED_ORIGIN=http://localhost:3000
+```
+
+REST API:
+
+```text
+GET    /health
+GET    /api/zalo/messages
+POST   /api/zalo/messages
+POST   /api/zalo/process
+DELETE /api/zalo/messages/:id
+```
+
+Ví dụ tạo tin nhắn:
+
+```bash
+curl -X POST http://localhost:8787/api/zalo/messages \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_SERVER_API_KEY" \
+  -d '{"userId":"ZALO_USER_ID","content":"Xin chào","scheduledTime":"2026-07-30T10:00:00+07:00"}'
+```
+
+Dữ liệu mặc định được lưu tại `server/zalo-messages.json`. Không commit tệp dữ liệu này hoặc token thật lên GitHub.
+
 ### Giới hạn bắt buộc
 
 - Đây là **Zalo Official Account OpenAPI**, không phải API đăng bài lên nhật ký cá nhân.
 - OA chỉ gửi được theo phạm vi quyền, chính sách và điều kiện tương tác do Zalo quy định.
-- Bản hiện tại lưu token trong `localStorage` và scheduler chạy trong trình duyệt; chỉ phù hợp thử nghiệm cá nhân.
-- Production phải chuyển token và tác vụ gửi sang backend, mã hóa secrets, thêm refresh-token flow, webhook, retry và audit log.
+- Chế độ frontend lưu token trong `localStorage`, chỉ phù hợp thử nghiệm cục bộ.
+- Production nên dùng `server/zalo-server.js`, secret manager, HTTPS, database thật, refresh-token flow, webhook và audit log.
 
 ---
 
-## 📤 Đăng Bài Tự Động (tab "Đăng bài tự động")
+## 📤 Đăng Bài Tự Động
 
-1. Kết nối nền tảng ở tab "Tìm khách hàng" trước (dùng chung token).
-2. Sang tab "Đăng bài tự động":
-   - Nhập chủ đề → bấm **"Tạo 3 phương án (template)"** để bot viết nhanh không cần API key, hoặc **"Viết bằng AI"** nếu bạn đã cấu hình API key riêng.
-   - Tinh chỉnh giọng văn (trung tính/khẩn cấp/thân thiện), độ dài, mức emoji, hashtag, CTA.
-   - Chọn nền tảng đăng, nhập Page ID / IG Business Account ID nếu cần.
-   - Instagram bắt buộc phải có URL ảnh, TikTok bắt buộc phải có URL video (API không cho đăng bài chỉ có chữ).
-   - Chọn "Đăng ngay" hoặc hẹn giờ + tần suất lặp lại, rồi lưu vào hàng đợi.
-3. Bật **"Tự động đăng bài đến hạn"** để app tự kiểm tra và đăng bài đã tới giờ.
+1. Kết nối nền tảng ở tab "Tìm khách hàng".
+2. Sang tab "Đăng bài tự động": tạo nội dung, chọn nền tảng, nhập media/target ID và lên lịch.
+3. Scheduler frontend chỉ hoạt động khi tab mở; triển khai worker/server để chạy liên tục.
 
-### ⚠️ Giới hạn cần biết
+### ⚠️ Giới hạn nền tảng
 
-- **Scheduler này chạy phía trình duyệt** — chỉ hoạt động khi tab web đang mở. Muốn đăng bài đúng giờ kể cả khi tắt máy, dùng `server/scheduler-example.js` làm nền tảng để triển khai lên một server luôn chạy (VPS, Render, Railway...) với cơ sở dữ liệu thật thay vì localStorage.
 - **Facebook**: cần quyền `pages_manage_posts`, chỉ đăng lên Page bạn quản lý.
-- **Instagram**: cần quyền `instagram_content_publish`, bắt buộc có ảnh/video (URL công khai).
-- **TikTok**: cần quyền `video.publish`; với đa số app, video được đưa vào draft/inbox để người dùng tự bấm đăng — trừ khi app của bạn được TikTok cấp quyền "Direct Post".
-- **AI mode**: API key bạn nhập chỉ lưu trong state của trình duyệt, nhưng sẽ mất khi tải lại trang trừ khi bạn tự thêm lưu trữ bền hơn.
-
----
-
-## ⚠️ Giới hạn quan trọng của các API
-
-Trước khi kỳ vọng ứng dụng "tự động quét toàn bộ mạng xã hội", cần biết:
-
-- **Facebook Graph API**: tìm Page công khai theo từ khóa cần quyền đặc biệt (Page Public Content Access) do Facebook xét duyệt riêng — không phải access token nào cũng dùng được.
-- **Instagram Graph API**: không hỗ trợ tìm tài khoản công khai của người khác — chỉ đọc được dữ liệu tài khoản Business/Creator mà token thuộc về.
-- **TikTok Open API**: không có endpoint tìm kiếm người dùng công khai cho ứng dụng bên thứ ba — chỉ đọc dữ liệu tài khoản đã cấp quyền OAuth.
-- **Zalo OA OpenAPI**: dành cho Official Account và người dùng nằm trong phạm vi tương tác/quyền hợp lệ; không phải công cụ quét người dùng Zalo hoặc gửi hàng loạt tùy ý.
-
-→ Ứng dụng phù hợp nhất để theo dõi và vận hành các tài khoản/trang của chính bạn, đồng thời làm nền tảng quản lý lead thủ công.
+- **Instagram**: cần quyền `instagram_content_publish`, bắt buộc có ảnh/video công khai.
+- **TikTok**: cần quyền `video.publish`; Direct Post phụ thuộc trạng thái xét duyệt ứng dụng.
+- **Zalo OA**: chỉ tương tác với người dùng hợp lệ trong phạm vi Official Account.
 
 ---
 
 ## 🚀 Bắt Đầu Nhanh
 
 ```bash
-git clone <your-repo-url>
-cd customer-finder-pro
+git clone https://github.com/airoolsmastery2026/BOT-DANG-BAI.git
+cd BOT-DANG-BAI
 npm install
 npm start
 ```
 
-Truy cập http://localhost:3000 — bạn có thể dùng ngay ở chế độ demo hoặc nhập access token tạm thời trong giao diện theo [SETUP_GUIDE.md](./SETUP_GUIDE.md).
+Truy cập `http://localhost:3000`.
 
 ---
 
@@ -102,8 +125,8 @@ customer-finder-pro/
 │   ├── App.jsx
 │   ├── AdvancedCustomerFinder.jsx
 │   ├── PostScheduler.jsx
-│   ├── ZaloControl.jsx               # Bảng điều khiển gửi/lên lịch Zalo OA
-│   ├── zalo_api.js                   # Client Zalo OA OpenAPI
+│   ├── ZaloControl.jsx
+│   ├── zalo_api.js
 │   ├── api_handler.js
 │   ├── content_generator.js
 │   ├── post_manager.js
@@ -111,7 +134,8 @@ customer-finder-pro/
 │   ├── index.js
 │   └── index.css
 ├── server/
-│   └── scheduler-example.js
+│   ├── scheduler-example.js
+│   └── zalo-server.js
 ├── SETUP_GUIDE.md
 ├── package.json
 ├── tailwind.config.js
