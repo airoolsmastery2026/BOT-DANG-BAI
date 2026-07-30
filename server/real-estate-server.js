@@ -4,7 +4,7 @@ const path = require('path');
 const { URL } = require('url');
 
 const HOST = process.env.REAL_ESTATE_SERVER_HOST || '0.0.0.0';
-const PORT = Number(process.env.REAL_ESTATE_SERVER_PORT || 8790);
+const PORT = Number(process.env.REAL_ESTATE_SERVER_PORT || 8791);
 const API_KEY = process.env.REAL_ESTATE_SERVER_API_KEY || '';
 const ALLOWED_ORIGIN = process.env.REAL_ESTATE_ALLOWED_ORIGIN || 'http://localhost:3000';
 const STORE_PATH = path.resolve(process.env.REAL_ESTATE_STORE_PATH || path.join(__dirname, 'real-estate-listings.json'));
