@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { MessageCircle, Send, Users } from 'lucide-react';
+import { Building2, BriefcaseBusiness, MessageCircle, Send, Users } from 'lucide-react';
 import AdvancedCustomerFinder from './AdvancedCustomerFinder';
 import PostScheduler from './PostScheduler';
 import ZaloControl from './ZaloControl';
+import LinkedInControl from './LinkedInControl';
+import RealEstateDashboard from './RealEstateDashboard';
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('finder');
 
-  // Trạng thái kết nối nền tảng được chia sẻ giữa 2 tab hiện có.
   const [connectedPlatforms, setConnectedPlatforms] = useState({
     facebook: false,
     instagram: false,
@@ -20,34 +21,29 @@ const App = () => {
     tiktok_token: '',
   });
 
+  const tabs = [
+    { id: 'finder', label: 'Tìm khách hàng', icon: Users },
+    { id: 'scheduler', label: 'Đăng bài tự động', icon: Send },
+    { id: 'zalo', label: 'Zalo OA', icon: MessageCircle },
+    { id: 'linkedin', label: 'LinkedIn', icon: BriefcaseBusiness },
+    { id: 'real-estate', label: 'Bất động sản', icon: Building2 },
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       <div className="max-w-7xl mx-auto pt-4 px-4 md:px-8">
         <div className="flex flex-wrap gap-2 mb-2">
-          <button
-            onClick={() => setActiveTab('finder')}
-            className={`px-5 py-2.5 rounded-t-lg font-medium flex items-center gap-2 transition ${
-              activeTab === 'finder' ? 'bg-gray-800 text-white' : 'bg-gray-900/50 text-gray-400 hover:text-white'
-            }`}
-          >
-            <Users className="w-4 h-4" /> Tìm khách hàng
-          </button>
-          <button
-            onClick={() => setActiveTab('scheduler')}
-            className={`px-5 py-2.5 rounded-t-lg font-medium flex items-center gap-2 transition ${
-              activeTab === 'scheduler' ? 'bg-gray-800 text-white' : 'bg-gray-900/50 text-gray-400 hover:text-white'
-            }`}
-          >
-            <Send className="w-4 h-4" /> Đăng bài tự động
-          </button>
-          <button
-            onClick={() => setActiveTab('zalo')}
-            className={`px-5 py-2.5 rounded-t-lg font-medium flex items-center gap-2 transition ${
-              activeTab === 'zalo' ? 'bg-gray-800 text-white' : 'bg-gray-900/50 text-gray-400 hover:text-white'
-            }`}
-          >
-            <MessageCircle className="w-4 h-4" /> Zalo OA
-          </button>
+          {tabs.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`px-5 py-2.5 rounded-t-lg font-medium flex items-center gap-2 transition ${
+                activeTab === id ? 'bg-gray-800 text-white' : 'bg-gray-900/50 text-gray-400 hover:text-white'
+              }`}
+            >
+              <Icon className="w-4 h-4" /> {label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -71,6 +67,8 @@ const App = () => {
       )}
 
       {activeTab === 'zalo' && <ZaloControl />}
+      {activeTab === 'linkedin' && <LinkedInControl />}
+      {activeTab === 'real-estate' && <RealEstateDashboard />}
     </div>
   );
 };
