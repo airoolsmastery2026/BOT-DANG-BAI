@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Activity, Building2, BriefcaseBusiness, MessageCircle, Send, Users } from 'lucide-react';
+import { Activity, Building2, BriefcaseBusiness, ListChecks, MessageCircle, Send, Users } from 'lucide-react';
 import AdvancedCustomerFinder from './AdvancedCustomerFinder';
 import PostScheduler from './PostScheduler';
 import ZaloControl from './ZaloControl';
 import LinkedInControl from './LinkedInControl';
 import RealEstateDashboard from './RealEstateDashboard';
 import SystemDashboard from './SystemDashboard';
+import QueueMonitor from './QueueMonitor';
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -24,6 +25,7 @@ const App = () => {
 
   const tabs = [
     { id: 'dashboard', label: 'Tổng quan', icon: Activity },
+    { id: 'queue', label: 'Hàng đợi', icon: ListChecks },
     { id: 'finder', label: 'Tìm khách hàng', icon: Users },
     { id: 'scheduler', label: 'Đăng bài tự động', icon: Send },
     { id: 'zalo', label: 'Zalo OA', icon: MessageCircle },
@@ -50,6 +52,7 @@ const App = () => {
       </div>
 
       {activeTab === 'dashboard' && <SystemDashboard onNavigate={setActiveTab} />}
+      {activeTab === 'queue' && <QueueMonitor />}
 
       {activeTab === 'finder' && (
         <AdvancedCustomerFinder
