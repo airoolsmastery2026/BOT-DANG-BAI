@@ -1,0 +1,12 @@
+[
+  {
+    "id": "post_001",
+    "content": "Chào buổi sáng! Đây là bài viết đầu tiên được đăng tự động từ hệ thống.",
+    "is_published": false
+  },
+  {
+    "id": "post_002",
+    "content": "Tự động hóa giúp đội ngũ duy trì lịch nội dung ổn định và giảm thao tác lặp lại.",
+    "is_published": false
+  }
+]
