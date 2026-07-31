@@ -86,19 +86,48 @@ Mỗi lần chạy chỉ đăng tối đa một bài. Khi thành công, script c
 - `is_published: true`
 - `facebook_post_id`
 
-## 5. Chạy bằng Cron trên VPS Linux
+## 5. Chạy kiểm thử
+
+Bộ test dùng `unittest` có sẵn trong Python và mock request, nên không đăng bài thật:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Các trường hợp chính được kiểm tra:
+
+- Chuẩn hóa dữ liệu hợp lệ.
+- Từ chối JSON sai cấu trúc và ID trùng.
+- Xử lý phản hồi thành công và lỗi từ Graph API.
+- Chỉ cập nhật bài chờ đầu tiên trong mỗi lượt chạy.
+
+## 6. Chạy bằng Cron trên VPS Linux
+
+Cấp quyền chạy cho wrapper:
+
+```bash
+chmod +x run_locked.sh
+```
 
 Ví dụ chạy lúc 08:00 và 20:00 mỗi ngày:
 
 ```cron
-0 8,20 * * * cd /opt/bot-dang-bai/scripts/facebook && /opt/bot-dang-bai/scripts/facebook/.venv/bin/python auto_post.py >> auto_post.log 2>&1
+0 8,20 * * * cd /opt/bot-dang-bai/scripts/facebook && ./run_locked.sh >> auto_post.log 2>&1
+```
+
+`run_locked.sh` sử dụng `flock --nonblock` để không cho hai lượt cron chạy chồng lên nhau. Có thể chỉ định Python hoặc file khóa khác:
+
+```bash
+PYTHON_BIN=/usr/bin/python3 FACEBOOK_LOCK_FILE=/tmp/facebook-post.lock ./run_locked.sh
 ```
 
 Nên nạp biến môi trường bằng service manager, file environment có quyền hạn chế hoặc secret manager thay vì ghi token trong crontab.
 
-## 6. Lưu ý triển khai
+## 7. Lưu ý triển khai
 
 - Token cần có quyền phù hợp để quản lý bài viết của Trang.
 - Không commit Page Access Token lên GitHub.
-- File JSON phù hợp với local/VPS đơn tiến trình. Khi chạy nhiều worker hoặc serverless, nên chuyển hàng đợi sang cơ sở dữ liệu có khóa giao dịch để tránh đăng trùng.
+- `.gitignore` trong thư mục này loại trừ `.env`, `data_posts.json`, virtual environment, log và file khóa.
+- File JSON phù hợp với local/VPS đơn tiến trình. Khi chạy nhiều máy, nhiều container hoặc serverless, nên chuyển hàng đợi sang cơ sở dữ liệu có khóa giao dịch để tránh đăng trùng.
 - Theo dõi log và exit code để phát hiện lỗi API, timeout hoặc cấu hình thiếu.
+- Không đặt lịch quá dày; cần tuân thủ giới hạn API và chính sách nền tảng.
