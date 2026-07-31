@@ -1,7 +1,7 @@
 {
-  "name": "customer-finder-pro",
+  "name": "bot-dang-bai",
   "version": "1.0.0",
-  "description": "Ứng dụng tìm kiếm, tạo nội dung và lên lịch đăng đa nền tảng",
+  "description": "Ứng dụng soạn nội dung, lên lịch và phân phối bài đăng đa nền tảng",
   "private": true,
   "homepage": ".",
   "dependencies": {
@@ -20,13 +20,12 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "test": "react-scripts test",
+    "test": "react-scripts test --watchAll=false --passWithNoTests",
     "eject": "react-scripts eject",
-    "lint": "eslint src --ext .js,.jsx",
+    "lint": "eslint src --ext .js,.jsx --max-warnings=0",
     "format": "prettier --write \"src/**/*.{js,jsx}\"",
     "zalo:server": "node server/zalo-server.js",
-    "linkedin:server": "node server/linkedin-server.js",
-    "real-estate:server": "node server/real-estate-server.js"
+    "linkedin:server": "node server/linkedin-server.js"
   },
   "eslintConfig": {
     "extends": ["react-app"]
@@ -39,6 +38,6 @@
     "node": "20.x",
     "npm": "10.x"
   },
-  "keywords": ["facebook", "instagram", "tiktok", "zalo", "linkedin", "real-estate", "customer", "scheduler", "social-media"],
+  "keywords": ["facebook", "instagram", "tiktok", "zalo", "linkedin", "scheduler", "publishing", "social-media"],
   "license": "MIT"
 }
