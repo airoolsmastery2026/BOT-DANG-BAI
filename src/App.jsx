@@ -1,5 +1,14 @@
 import React, { useState } from 'react';
-import { Activity, Building2, BriefcaseBusiness, ListChecks, MessageCircle, Send, Users } from 'lucide-react';
+import {
+  Activity,
+  Bell,
+  Building2,
+  BriefcaseBusiness,
+  ListChecks,
+  MessageCircle,
+  Send,
+  Users,
+} from 'lucide-react';
 import AdvancedCustomerFinder from './AdvancedCustomerFinder';
 import PostScheduler from './PostScheduler';
 import ZaloControl from './ZaloControl';
@@ -7,6 +16,7 @@ import LinkedInControl from './LinkedInControl';
 import RealEstateDashboard from './RealEstateDashboard';
 import SystemDashboard from './SystemDashboard';
 import QueueMonitor from './QueueMonitor';
+import NotificationCenter from './NotificationCenter';
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -26,6 +36,7 @@ const App = () => {
   const tabs = [
     { id: 'dashboard', label: 'Tổng quan', icon: Activity },
     { id: 'queue', label: 'Hàng đợi', icon: ListChecks },
+    { id: 'notifications', label: 'Thông báo', icon: Bell },
     { id: 'finder', label: 'Tìm khách hàng', icon: Users },
     { id: 'scheduler', label: 'Đăng bài tự động', icon: Send },
     { id: 'zalo', label: 'Zalo OA', icon: MessageCircle },
@@ -53,6 +64,7 @@ const App = () => {
 
       {activeTab === 'dashboard' && <SystemDashboard onNavigate={setActiveTab} />}
       {activeTab === 'queue' && <QueueMonitor />}
+      {activeTab === 'notifications' && <NotificationCenter />}
 
       {activeTab === 'finder' && (
         <AdvancedCustomerFinder
