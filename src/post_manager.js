@@ -1,10 +1,8 @@
 /**
- * Post Manager - quản lý hàng đợi bài đăng, lên lịch, và tự động đăng.
+ * Post Manager - quản lý hàng đợi bài đăng, lên lịch và tự động đăng.
  *
- * LƯU Ý QUAN TRỌNG: đây là scheduler chạy phía trình duyệt (client-side).
- * Nó chỉ kiểm tra và đăng bài khi tab web đang mở. Nếu bạn cần đăng bài
- * đúng giờ kể cả khi không mở trình duyệt, hãy dùng server/scheduler-example.js
- * làm nền tảng để chạy trên một server/cron thật.
+ * Đây là scheduler chạy phía trình duyệt. Tác vụ chỉ được kiểm tra khi ứng
+ * dụng đang mở. Scheduler phía server sẽ được kết nối ở giai đoạn vận hành.
  */
 
 import { FacebookAPI, InstagramAPI, TikTokAPI } from './api_handler';
@@ -33,130 +31,147 @@ const nextRecurrence = (dateISO, recurrence) => {
   return date.toISOString();
 };
 
-export const getScheduledPosts = () => getFromLocalStorage(STORAGE_KEY, []);
+export const getScheduledPosts = () => {
+  const posts = getFromLocalStorage(STORAGE_KEY, []);
+  return Array.isArray(posts) ? posts : [];
+};
 
 const persist = (posts) => saveToLocalStorage(STORAGE_KEY, posts);
 
-/**
- * Thêm bài đăng vào hàng đợi.
- * @param {Object} post
- * @param {string} post.content
- * @param {string[]} post.platforms - ['facebook','instagram','tiktok']
- * @param {string} post.scheduledTime - ISO string; nếu là quá khứ/hiện tại => đăng ngay ở lần check tới
- * @param {string} [post.imageUrl]
- * @param {string} [post.videoUrl]
- * @param {'none'|'daily'|'weekly'} [post.recurrence]
- * @param {Object} [post.targetIds] - { facebook: pageId, instagram: igUserId }
- */
 export const schedulePost = (post) => {
+  const scheduledDate = new Date(post.scheduledTime);
+  if (!post.content?.trim()) throw new Error('Nội dung bài đăng không được để trống.');
+  if (!Array.isArray(post.platforms) || post.platforms.length === 0) {
+    throw new Error('Phải chọn ít nhất một nền tảng.');
+  }
+  if (Number.isNaN(scheduledDate.getTime())) throw new Error('Thời gian đăng không hợp lệ.');
+
   const posts = getScheduledPosts();
   const newPost = {
     id: `post_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    content: post.content,
-    platforms: post.platforms || [],
-    scheduledTime: post.scheduledTime,
-    imageUrl: post.imageUrl || '',
-    videoUrl: post.videoUrl || '',
+    content: post.content.trim(),
+    platforms: [...new Set(post.platforms)],
+    scheduledTime: scheduledDate.toISOString(),
+    imageUrl: post.imageUrl?.trim() || '',
+    videoUrl: post.videoUrl?.trim() || '',
     recurrence: post.recurrence || RECURRENCE.NONE,
     targetIds: post.targetIds || {},
     status: POST_STATUS.SCHEDULED,
     createdAt: new Date().toISOString(),
     results: {},
   };
-  posts.push(newPost);
-  persist(posts);
+
+  persist([...posts, newPost]);
   return newPost;
 };
 
 export const cancelPost = (postId) => {
-  const posts = getScheduledPosts();
-  const updated = posts.map(p => (p.id === postId && p.status === POST_STATUS.SCHEDULED
-    ? { ...p, status: POST_STATUS.CANCELLED }
-    : p));
+  const updated = getScheduledPosts().map((post) => (
+    post.id === postId && post.status === POST_STATUS.SCHEDULED
+      ? { ...post, status: POST_STATUS.CANCELLED, cancelledAt: new Date().toISOString() }
+      : post
+  ));
   persist(updated);
   return updated;
 };
 
 export const deletePost = (postId) => {
-  const posts = getScheduledPosts().filter(p => p.id !== postId);
+  const posts = getScheduledPosts().filter((post) => post.id !== postId);
   persist(posts);
   return posts;
 };
 
-/**
- * Đăng một bài lên tất cả nền tảng được chọn cho nó, dùng token đã cung cấp.
- */
-const publishToPlatforms = async (post, credentials) => {
+const failedResult = (error) => ({
+  success: false,
+  error: error instanceof Error ? error.message : String(error || 'Lỗi không xác định'),
+});
+
+const publishToPlatforms = async (post, credentials = {}) => {
   const results = {};
 
-  if (post.platforms.includes('facebook') && credentials.facebook_token) {
-    const fb = new FacebookAPI(credentials.facebook_token);
-    const pageId = post.targetIds.facebook || 'me';
-    results.facebook = await fb.publishPost(pageId, post.content, {
-      imageUrl: post.imageUrl || undefined,
-    });
-  }
-
-  if (post.platforms.includes('instagram') && credentials.instagram_token) {
-    const ig = new InstagramAPI(credentials.instagram_token);
-    const igUserId = post.targetIds.instagram || 'me';
-    results.instagram = await ig.publishPost(igUserId, post.imageUrl, post.content);
-  }
-
-  if (post.platforms.includes('tiktok') && credentials.tiktok_token) {
-    const tt = new TikTokAPI(credentials.tiktok_token);
-    results.tiktok = await tt.publishVideo(post.videoUrl, post.content);
+  for (const platform of post.platforms) {
+    try {
+      if (platform === 'facebook') {
+        if (!credentials.facebook_token) throw new Error('Thiếu Facebook access token.');
+        const api = new FacebookAPI(credentials.facebook_token);
+        results.facebook = await api.publishPost(post.targetIds.facebook || 'me', post.content, {
+          imageUrl: post.imageUrl || undefined,
+        });
+      } else if (platform === 'instagram') {
+        if (!credentials.instagram_token) throw new Error('Thiếu Instagram access token.');
+        if (!post.imageUrl) throw new Error('Instagram yêu cầu URL ảnh.');
+        const api = new InstagramAPI(credentials.instagram_token);
+        results.instagram = await api.publishPost(
+          post.targetIds.instagram || 'me',
+          post.imageUrl,
+          post.content,
+        );
+      } else if (platform === 'tiktok') {
+        if (!credentials.tiktok_token) throw new Error('Thiếu TikTok access token.');
+        if (!post.videoUrl) throw new Error('TikTok yêu cầu URL video.');
+        const api = new TikTokAPI(credentials.tiktok_token);
+        results.tiktok = await api.publishVideo(post.videoUrl, post.content);
+      } else {
+        results[platform] = failedResult(`Nền tảng chưa được hỗ trợ: ${platform}`);
+      }
+    } catch (error) {
+      results[platform] = failedResult(error);
+    }
   }
 
   return results;
 };
 
-/**
- * Kiểm tra hàng đợi, đăng các bài đã đến giờ. Gọi định kỳ (vd. mỗi 60s)
- * từ component với setInterval.
- * @param {Object} credentials - { facebook_token, instagram_token, tiktok_token }
- * @returns {Promise<Array>} danh sách bài vừa được xử lý
- */
-export const checkAndPublishDuePosts = async (credentials) => {
+export const checkAndPublishDuePosts = async (credentials = {}) => {
   const posts = getScheduledPosts();
-  const now = new Date();
+  const now = Date.now();
+  const updatedPosts = [...posts];
+  const recurringPosts = [];
   const processed = [];
 
-  for (const post of posts) {
+  for (let index = 0; index < updatedPosts.length; index += 1) {
+    const post = updatedPosts[index];
     if (post.status !== POST_STATUS.SCHEDULED) continue;
-    if (new Date(post.scheduledTime) > now) continue;
 
-    const results = await publishToPlatforms(post, credentials);
+    const scheduledAt = new Date(post.scheduledTime).getTime();
+    if (Number.isNaN(scheduledAt) || scheduledAt > now) continue;
+
+    const publishingPost = { ...post, status: POST_STATUS.PUBLISHING };
+    updatedPosts[index] = publishingPost;
+    persist(updatedPosts);
+
+    const results = await publishToPlatforms(publishingPost, credentials);
     const attempts = Object.values(results);
-    const allOk = attempts.length > 0 && attempts.every(r => r?.success);
-    const anyOk = attempts.some(r => r?.success);
+    const successCount = attempts.filter((result) => result?.success).length;
+    const completedPost = {
+      ...publishingPost,
+      results,
+      status: successCount === attempts.length && attempts.length > 0
+        ? POST_STATUS.PUBLISHED
+        : POST_STATUS.FAILED,
+      publishedAt: new Date().toISOString(),
+      successCount,
+      failureCount: attempts.length - successCount,
+    };
 
-    if (attempts.length === 0) {
-      results.system = {
-        success: false,
-        error: 'Không có token hợp lệ cho các nền tảng đã chọn.',
-      };
-    }
+    updatedPosts[index] = completedPost;
+    processed.push(completedPost);
 
-    post.results = results;
-    post.status = allOk || anyOk ? POST_STATUS.PUBLISHED : POST_STATUS.FAILED;
-    post.publishedAt = new Date().toISOString();
-    processed.push(post);
-
-    // Nếu là bài lặp lại và đã đăng thành công ít nhất 1 nền tảng, tạo bản sao cho lần kế tiếp
-    if (post.recurrence !== RECURRENCE.NONE && anyOk) {
-      const clone = schedulePost({
-        ...post,
-        scheduledTime: nextRecurrence(post.scheduledTime, post.recurrence),
+    if (completedPost.recurrence !== RECURRENCE.NONE && successCount > 0) {
+      recurringPosts.push({
+        ...completedPost,
+        id: `post_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        scheduledTime: nextRecurrence(completedPost.scheduledTime, completedPost.recurrence),
+        status: POST_STATUS.SCHEDULED,
+        createdAt: new Date().toISOString(),
+        publishedAt: undefined,
+        results: {},
+        successCount: undefined,
+        failureCount: undefined,
       });
-      processed.push(clone);
     }
   }
 
-  persist(getScheduledPosts().map(p => {
-    const updated = processed.find(pp => pp.id === p.id);
-    return updated || p;
-  }));
-
+  persist([...updatedPosts, ...recurringPosts]);
   return processed;
 };
