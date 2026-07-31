@@ -6,6 +6,7 @@ import {
   ListChecks,
   MessageCircle,
   Send,
+  Sparkles,
 } from 'lucide-react';
 import PostScheduler from './PostScheduler';
 import ZaloControl from './ZaloControl';
@@ -13,11 +14,13 @@ import LinkedInControl from './LinkedInControl';
 import SystemDashboard from './SystemDashboard';
 import QueueMonitor from './QueueMonitor';
 import NotificationCenter from './NotificationCenter';
+import CampaignStudio from './CampaignStudio';
 
 const TAB_STORAGE_KEY = 'bot_dang_bai_active_tab';
 
 const tabs = [
   { id: 'dashboard', label: 'Tổng quan', icon: Activity },
+  { id: 'studio', label: 'AI Studio', icon: Sparkles },
   { id: 'scheduler', label: 'Đăng bài', icon: Send },
   { id: 'queue', label: 'Hàng đợi', icon: ListChecks },
   { id: 'zalo', label: 'Zalo OA', icon: MessageCircle },
@@ -118,6 +121,7 @@ const App = () => {
 
       <main id="main-content" tabIndex="-1">
         {activeTab === 'dashboard' && <SystemDashboard onNavigate={setActiveTab} />}
+        {activeTab === 'studio' && <CampaignStudio />}
         {activeTab === 'queue' && <QueueMonitor />}
         {activeTab === 'notifications' && <NotificationCenter />}
 
