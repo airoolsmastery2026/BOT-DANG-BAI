@@ -2,6 +2,8 @@ import {
   POST_STATUS,
   RECURRENCE,
   cancelPost,
+  checkAndPublishDuePosts,
+  getPendingPlatforms,
   getQueueSummary,
   getScheduledPosts,
   recoverStuckPosts,
@@ -10,6 +12,7 @@ import {
   schedulePost,
   schedulePosts,
 } from './post_manager';
+import { FacebookAPI, InstagramAPI } from './api_handler';
 
 jest.mock('./api_handler', () => ({
   FacebookAPI: jest.fn(),
@@ -40,6 +43,7 @@ const validPost = (overrides = {}) => ({
 
 beforeEach(() => {
   utils.__resetStorage();
+  jest.clearAllMocks();
 });
 
 describe('post manager queue', () => {
@@ -100,26 +104,67 @@ describe('post manager queue', () => {
     expect(getScheduledPosts()[0].cancelledAt).toBeTruthy();
   });
 
-  test('requeues a failed post and clears prior results', () => {
-    const scheduled = schedulePost(validPost());
+  test('requeues a failed post while preserving prior platform results', () => {
+    const scheduled = schedulePost(validPost({ platforms: ['facebook', 'instagram'], imageUrl: 'https://example.com/a.jpg' }));
     utils.__setStorage('scheduled_posts', [{
       ...scheduled,
       status: POST_STATUS.FAILED,
-      results: { facebook: { success: false, error: 'token' } },
+      results: {
+        facebook: { success: true, id: 'fb-1' },
+        instagram: { success: false, error: 'token' },
+      },
+      successCount: 1,
       failureCount: 1,
     }]);
 
     const retried = retryPost(getScheduledPosts()[0].id);
     expect(retried.status).toBe(POST_STATUS.SCHEDULED);
-    expect(retried.results).toEqual({});
-    expect(retried.failureCount).toBeUndefined();
+    expect(retried.results.facebook.success).toBe(true);
+    expect(retried.pendingPlatforms).toEqual(['instagram']);
+    expect(getPendingPlatforms(retried)).toEqual(['instagram']);
+  });
+
+  test('publishes only platforms that have not succeeded', async () => {
+    const scheduled = schedulePost(validPost({
+      platforms: ['facebook', 'instagram'],
+      imageUrl: 'https://example.com/a.jpg',
+      scheduledTime: new Date(Date.now() - 60_000).toISOString(),
+    }));
+    utils.__setStorage('scheduled_posts', [{
+      ...scheduled,
+      status: POST_STATUS.SCHEDULED,
+      results: {
+        facebook: { success: true, id: 'fb-1' },
+        instagram: { success: false, error: 'old error' },
+      },
+    }]);
+
+    const instagramPublish = jest.fn().mockResolvedValue({ success: true, id: 'ig-1' });
+    InstagramAPI.mockImplementation(() => ({ publishPost: instagramPublish }));
+    FacebookAPI.mockImplementation(() => ({ publishPost: jest.fn() }));
+
+    const processed = await checkAndPublishDuePosts({
+      facebook_token: 'fb-token',
+      instagram_token: 'ig-token',
+    });
+
+    expect(FacebookAPI).not.toHaveBeenCalled();
+    expect(InstagramAPI).toHaveBeenCalledTimes(1);
+    expect(instagramPublish).toHaveBeenCalledTimes(1);
+    expect(processed[0].status).toBe(POST_STATUS.PUBLISHED);
+    expect(processed[0].results.facebook.id).toBe('fb-1');
+    expect(processed[0].results.instagram.id).toBe('ig-1');
   });
 
   test('retries failed posts by campaign with a limit', () => {
     const first = schedulePost(validPost({ content: 'Bài 1' }));
     const second = schedulePost(validPost({ content: 'Bài 2', campaignId: 'campaign-2' }));
     const third = schedulePost(validPost({ content: 'Bài 3', scheduledTime: new Date(Date.now() + 120_000).toISOString() }));
-    utils.__setStorage('scheduled_posts', [first, second, third].map((post) => ({ ...post, status: POST_STATUS.FAILED })));
+    utils.__setStorage('scheduled_posts', [first, second, third].map((post) => ({
+      ...post,
+      status: POST_STATUS.FAILED,
+      results: { facebook: { success: false, error: 'failed' } },
+    })));
 
     expect(retryFailedPosts({ campaignId: 'campaign-1', limit: 1 })).toBe(1);
     const posts = getScheduledPosts();
@@ -156,15 +201,16 @@ describe('post manager queue', () => {
     });
   });
 
-  test('filters malformed persisted records', () => {
+  test('filters malformed persisted records and orphan platform results', () => {
     utils.__setStorage('scheduled_posts', [
       null,
       {},
-      validPost({ id: 'legacy-post' }),
+      validPost({ id: 'legacy-post', results: { facebook: { success: true }, tiktok: { success: true } } }),
       validPost({ id: 'bad-time', scheduledTime: 'not-a-date' }),
     ]);
     const posts = getScheduledPosts();
     expect(posts).toHaveLength(1);
     expect(posts[0].id).toBe('legacy-post');
+    expect(posts[0].results.tiktok).toBeUndefined();
   });
 });
