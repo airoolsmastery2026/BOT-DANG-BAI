@@ -66,6 +66,15 @@ export function detectDurationDays(command) {
   return Math.min(Math.max(Number(match[1]), 1), 365);
 }
 
+export function detectPostsPerDay(command) {
+  const normalized = normalizeText(command);
+  const explicit = normalized.match(/(\d{1,2})\s*(bài|post|video|ảnh)\s*(mỗi|\/)?\s*(ngày|day)/);
+  if (explicit) return Math.min(Math.max(Number(explicit[1]), 1), 10);
+  if (/hai\s+(bài|post|video|ảnh)\s+(mỗi|\/)?\s*(ngày|day)/.test(normalized)) return 2;
+  if (/ba\s+(bài|post|video|ảnh)\s+(mỗi|\/)?\s*(ngày|day)/.test(normalized)) return 3;
+  return 1;
+}
+
 export function analyzeCampaignCommand(command) {
   const topic = String(command || '').trim();
   if (!topic) throw new Error('Câu lệnh chiến dịch không được để trống.');
@@ -80,6 +89,7 @@ export function analyzeCampaignCommand(command) {
     suggestedPlatforms: detectPlatforms(topic),
     suggestedMediaTypes: detectMediaTypes(topic),
     durationDays: detectDurationDays(topic),
+    postsPerDay: detectPostsPerDay(topic),
   };
 }
 
