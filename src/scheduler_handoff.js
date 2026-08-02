@@ -1,6 +1,28 @@
 export const SCHEDULER_HANDOFF_STORAGE_KEY = 'bot_dang_bai_scheduler_handoff';
 
 const SUPPORTED_SCHEDULER_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok']);
+const MAX_SCHEDULE_SLOTS = 365;
+
+function normalizeScheduleSlots(value) {
+  const rawSlots = Array.isArray(value?.scheduleSlots)
+    ? value.scheduleSlots
+    : value?.workflow?.schedulePlan?.slots || [];
+
+  const normalized = rawSlots
+    .map((slot) => {
+      const rawDate = typeof slot === 'string'
+        ? slot
+        : slot?.publishAt || slot?.scheduledAt || slot?.date || null;
+      if (!rawDate) return null;
+      const date = new Date(rawDate);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    })
+    .filter(Boolean);
+
+  return [...new Set(normalized)]
+    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())
+    .slice(0, MAX_SCHEDULE_SLOTS);
+}
 
 export function normalizeSchedulerHandoff(value) {
   if (!value || typeof value !== 'object') return null;
@@ -14,7 +36,9 @@ export function normalizeSchedulerHandoff(value) {
     .map((platform) => String(platform || '').trim().toLowerCase())
     .filter((platform) => SUPPORTED_SCHEDULER_PLATFORMS.has(platform)))];
 
+  const scheduleSlots = normalizeScheduleSlots(value);
   const publishAt = value.publishAt
+    || scheduleSlots[0]
     || value.workflow?.channels?.flatMap((channel) => channel.jobs || []).find((job) => job.publishAt)?.publishAt
     || null;
   const publishDate = publishAt ? new Date(publishAt) : null;
@@ -29,9 +53,15 @@ export function normalizeSchedulerHandoff(value) {
     topic,
     platforms,
     publishAt: publishDate ? publishDate.toISOString() : null,
+    scheduleSlots: scheduleSlots.length
+      ? scheduleSlots
+      : (publishDate ? [publishDate.toISOString()] : []),
+    scheduleSlotCount: scheduleSlots.length || (publishDate ? 1 : 0),
+    durationDays: Number(value.workflow?.campaign?.durationDays || value.workflow?.schedulePlan?.durationDays || 1),
+    postsPerDay: Number(value.workflow?.campaign?.postsPerDay || value.workflow?.schedulePlan?.postsPerDay || 1),
     hasImageJob: jobs.some((job) => job.type === 'image'),
     hasVideoJob: jobs.some((job) => job.type === 'video'),
-    handedOffAt: value.handedOffAt || null,
+    handedOffAt: value.handedOffAt || value.createdAt || null,
   };
 }
 
