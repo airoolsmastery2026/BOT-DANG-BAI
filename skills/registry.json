@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0.0",
+  "updatedAt": "2026-08-02T03:12:00.000Z",
+  "skills": [
+    {
+      "id": "one-click-campaign",
+      "version": "1.0.0",
+      "enabled": true,
+      "packagePath": "skills/one-click-campaign",
+      "metadataPath": "skills/one-click-campaign/metadata.json",
+      "runtimeEntrypoint": "src/campaign_orchestrator.js"
+    }
+  ],
+  "capabilities": [
+    "campaign-command-analyzer",
+    "campaign-planner",
+    "platform-content-generator",
+    "media-job-planner",
+    "campaign-readiness-validator",
+    "campaign-storage"
+  ]
+}
