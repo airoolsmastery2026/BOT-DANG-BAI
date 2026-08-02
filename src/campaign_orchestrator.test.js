@@ -18,6 +18,7 @@ describe('campaign orchestrator', () => {
     expect(run.command).toBe('Tạo bài Facebook về tủ bếp');
     expect(run.status).toBe(CAMPAIGN_RUN_STATUS.CREATED);
     expect(run.steps).toHaveLength(6);
+    expect(run.metrics).toEqual({});
   });
 
   test('rejects an empty command', () => {
@@ -38,7 +39,12 @@ describe('campaign orchestrator', () => {
     expect(result.status).toBe(CAMPAIGN_RUN_STATUS.WAITING_APPROVAL);
     expect(result.workflow.orchestrator.runId).toBe(result.runId);
     expect(result.steps.every((step) => step.status === 'completed')).toBe(true);
+    expect(result.workflow.channels[0].contentStatus).toBe('generated');
+    expect(result.workflow.channels[0].content.text.length).toBeGreaterThan(0);
+    expect(result.metrics.generatedContentCount).toBe(result.workflow.channels.length);
+    expect(result.metrics.contentWordCount).toBeGreaterThan(0);
     expect(updates).toContain(CAMPAIGN_RUN_STATUS.ANALYZING);
+    expect(updates).toContain(CAMPAIGN_RUN_STATUS.GENERATING_CONTENT);
     expect(updates).toContain(CAMPAIGN_RUN_STATUS.VALIDATING);
   });
 
@@ -54,6 +60,7 @@ describe('campaign orchestrator', () => {
     expect(result.status).toBe(CAMPAIGN_RUN_STATUS.READY);
     expect(result.readiness.ready).toBe(true);
     expect(result.workflow.workflowStatus).toBe('approved');
+    expect(result.workflow.channels[0].content.platform).toBe('tiktok');
   });
 
   test('returns failed run context when scheduling data is missing', async () => {
