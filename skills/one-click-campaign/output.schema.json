@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OneClickCampaignOutput",
+  "type": "object",
+  "required": ["runId", "status", "steps"],
+  "properties": {
+    "runId": { "type": "string", "minLength": 1 },
+    "campaignId": { "type": ["string", "null"] },
+    "status": {
+      "type": "string",
+      "enum": ["created", "analyzing", "planning", "generating_content", "generating_media", "validating", "waiting_approval", "ready", "failed", "cancelled"]
+    },
+    "workflow": { "type": ["object", "null"] },
+    "readiness": { "type": ["object", "null"] },
+    "metrics": { "type": "object" },
+    "error": { "type": ["string", "null"] },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "running", "completed", "failed"] },
+          "error": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}
