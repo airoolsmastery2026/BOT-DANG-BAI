@@ -15,6 +15,18 @@ const issue = (code, severity, message, post = null, platform = null) => ({
   platform,
 });
 
+const summarizeResults = (post) => {
+  const platformSet = new Set(Array.isArray(post?.platforms) ? post.platforms : []);
+  const entries = Object.entries(post?.results || {})
+    .filter(([platform]) => platformSet.has(platform));
+
+  return entries.reduce((summary, [platform, result]) => {
+    if (result?.success === true) summary.success.push(platform);
+    if (result?.success === false) summary.failed.push(platform);
+    return summary;
+  }, { success: [], failed: [] });
+};
+
 export const inspectQueueHealth = ({
   posts = getScheduledPosts(),
   credentials = {},
@@ -28,6 +40,7 @@ export const inspectQueueHealth = ({
   posts.forEach((post) => {
     const scheduledAt = new Date(post.scheduledTime).getTime();
     const updatedAt = new Date(post.updatedAt || post.scheduledTime).getTime();
+    const resultSummary = summarizeResults(post);
 
     if (post.idempotencyKey) {
       const previous = idempotencyKeys.get(post.idempotencyKey);
@@ -46,6 +59,15 @@ export const inspectQueueHealth = ({
     if (post.status === POST_STATUS.SCHEDULED && Number.isFinite(scheduledAt)) {
       if (now - scheduledAt >= overdueAfterMs) {
         issues.push(issue('overdue', 'warning', 'Tác vụ đã quá thời gian dự kiến nhưng chưa được xử lý.', post));
+      }
+
+      if (resultSummary.success.length > 0) {
+        issues.push(issue(
+          'scheduled_with_successful_results',
+          'error',
+          `Tác vụ đang chờ nhưng đã có nền tảng đăng thành công (${resultSummary.success.join(', ')}). Không được đăng lại toàn bộ nền tảng.`,
+          post,
+        ));
       }
 
       post.platforms.forEach((platform) => {
@@ -70,9 +92,32 @@ export const inspectQueueHealth = ({
       issues.push(issue('stuck_publishing', 'error', 'Tác vụ đang đăng đã vượt quá thời gian cho phép.', post));
     }
 
-    if (post.status === POST_STATUS.FAILED && Number(post.attemptCount || 0) >= 3) {
-      issues.push(issue('repeated_failure', 'warning', 'Tác vụ đã thất bại từ 3 lần trở lên.', post));
+    if (post.status === POST_STATUS.FAILED) {
+      if (Number(post.attemptCount || 0) >= 3) {
+        issues.push(issue('repeated_failure', 'warning', 'Tác vụ đã thất bại từ 3 lần trở lên.', post));
+      }
+
+      if (resultSummary.success.length > 0 && resultSummary.failed.length > 0) {
+        issues.push(issue(
+          'partial_publish_requires_selective_retry',
+          'error',
+          `Đăng một phần: thành công ${resultSummary.success.join(', ')}; thất bại ${resultSummary.failed.join(', ')}. Chỉ được thử lại nền tảng thất bại.`,
+          post,
+        ));
+      }
     }
+
+    Object.keys(post.results || {}).forEach((platform) => {
+      if (platform !== 'system' && !post.platforms.includes(platform)) {
+        issues.push(issue(
+          'orphaned_platform_result',
+          'warning',
+          `Kết quả của ${platform} không thuộc danh sách nền tảng của tác vụ.`,
+          post,
+          platform,
+        ));
+      }
+    });
   });
 
   const summary = issues.reduce((acc, item) => {
