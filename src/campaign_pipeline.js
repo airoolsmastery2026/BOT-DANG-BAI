@@ -1,4 +1,5 @@
 import { analyzeCampaignCommand } from './campaign_command_analyzer';
+import { attachScheduleToWorkflow, evaluateScheduleConflicts } from './campaign_schedule_planner';
 import { buildCampaignWorkflow, validateWorkflowForScheduling } from './campaign_workflow';
 
 function chooseValues(explicitValues, suggestedValues, fallback) {
@@ -11,6 +12,8 @@ export function createCampaignFromCommand(command, overrides = {}) {
   const analysis = analyzeCampaignCommand(command);
   const platforms = chooseValues(overrides.platforms, analysis.suggestedPlatforms, ['facebook']);
   const mediaTypes = chooseValues(overrides.mediaTypes, analysis.suggestedMediaTypes, ['image']);
+  const durationDays = overrides.durationDays || analysis.durationDays;
+  const postsPerDay = overrides.postsPerDay || analysis.postsPerDay || 1;
 
   const workflow = buildCampaignWorkflow({
     id: overrides.id,
@@ -28,18 +31,23 @@ export function createCampaignFromCommand(command, overrides = {}) {
     brand: overrides.brand || {},
   });
 
-  return {
+  return attachScheduleToWorkflow({
     ...workflow,
     campaign: {
       ...workflow.campaign,
       domain: analysis.domain,
-      durationDays: overrides.durationDays || analysis.durationDays,
+      durationDays,
+      postsPerDay,
       commandAnalysis: {
         suggestedPlatforms: analysis.suggestedPlatforms,
         suggestedMediaTypes: analysis.suggestedMediaTypes,
       },
     },
-  };
+  }, {
+    startAt: overrides.publishAt || null,
+    durationDays,
+    postsPerDay,
+  });
 }
 
 export function evaluateCampaignReadiness(workflow) {
@@ -47,6 +55,7 @@ export function evaluateCampaignReadiness(workflow) {
   const warnings = [];
   const blockingErrors = [...scheduling.errors];
   const mediaJobs = workflow?.channels?.flatMap((channel) => channel.jobs || []) || [];
+  const schedulePlan = workflow?.schedulePlan;
 
   if (mediaJobs.some((job) => job.type === 'image' && !job.renderInput)) {
     blockingErrors.push('Có tác vụ ảnh chưa có render input.');
@@ -54,14 +63,21 @@ export function evaluateCampaignReadiness(workflow) {
   if (mediaJobs.some((job) => job.type === 'video' && !Array.isArray(job.storyboard))) {
     blockingErrors.push('Có tác vụ video chưa có storyboard.');
   }
+  if (!schedulePlan?.valid || !schedulePlan?.slots?.length) {
+    blockingErrors.push(...(schedulePlan?.errors || ['Chiến dịch chưa có kế hoạch lịch đăng hợp lệ.']));
+  } else {
+    const conflictCheck = evaluateScheduleConflicts(schedulePlan);
+    if (!conflictCheck.valid) blockingErrors.push('Kế hoạch lịch đăng có các mốc thời gian quá gần nhau.');
+    if (schedulePlan.errors?.length) warnings.push(...schedulePlan.errors);
+  }
   if (workflow?.campaign?.approvalMode === 'review') {
     warnings.push('Chiến dịch cần được duyệt trước khi đăng.');
   }
 
   return {
     ready: blockingErrors.length === 0,
-    errors: blockingErrors,
-    warnings,
+    errors: [...new Set(blockingErrors)],
+    warnings: [...new Set(warnings)],
     requiresApproval: workflow?.campaign?.approvalMode === 'review',
   };
 }
