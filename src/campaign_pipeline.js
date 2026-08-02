@@ -45,22 +45,23 @@ export function createCampaignFromCommand(command, overrides = {}) {
 export function evaluateCampaignReadiness(workflow) {
   const scheduling = validateWorkflowForScheduling(workflow);
   const warnings = [];
-
-  if (workflow?.campaign?.approvalMode !== 'review') {
-    warnings.push('Chiến dịch không ở chế độ duyệt thủ công.');
-  }
-
+  const blockingErrors = [...scheduling.errors];
   const mediaJobs = workflow?.channels?.flatMap((channel) => channel.jobs || []) || [];
+
   if (mediaJobs.some((job) => job.type === 'image' && !job.renderInput)) {
-    warnings.push('Có tác vụ ảnh chưa có render input.');
+    blockingErrors.push('Có tác vụ ảnh chưa có render input.');
   }
   if (mediaJobs.some((job) => job.type === 'video' && !Array.isArray(job.storyboard))) {
-    warnings.push('Có tác vụ video chưa có storyboard.');
+    blockingErrors.push('Có tác vụ video chưa có storyboard.');
+  }
+  if (workflow?.campaign?.approvalMode === 'review') {
+    warnings.push('Chiến dịch cần được duyệt trước khi đăng.');
   }
 
   return {
-    ready: scheduling.valid && warnings.length === 0,
-    errors: scheduling.errors,
+    ready: blockingErrors.length === 0,
+    errors: blockingErrors,
     warnings,
+    requiresApproval: workflow?.campaign?.approvalMode === 'review',
   };
 }
