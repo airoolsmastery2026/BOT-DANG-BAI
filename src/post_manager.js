@@ -41,7 +41,10 @@ const normalizeRecurrence = (recurrence) => (
 const normalizeStoredPost = (post) => {
   if (!post || typeof post !== 'object' || !post.id) return null;
   const platforms = normalizePlatforms(post.platforms);
-  if (!platforms.length || !post.content || !post.scheduledTime) return null;
+  const scheduledDate = new Date(post.scheduledTime);
+  if (!platforms.length || !String(post.content || '').trim() || Number.isNaN(scheduledDate.getTime())) {
+    return null;
+  }
 
   return {
     ...post,
@@ -49,7 +52,7 @@ const normalizeStoredPost = (post) => {
     campaignId: post.campaignId ? String(post.campaignId) : null,
     content: String(post.content).trim(),
     platforms,
-    scheduledTime: new Date(post.scheduledTime).toISOString(),
+    scheduledTime: scheduledDate.toISOString(),
     imageUrl: String(post.imageUrl || '').trim(),
     videoUrl: String(post.videoUrl || '').trim(),
     recurrence: normalizeRecurrence(post.recurrence),
