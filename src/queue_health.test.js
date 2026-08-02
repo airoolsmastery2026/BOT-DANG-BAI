@@ -1,4 +1,4 @@
-import { POST_STATUS } from './post_manager';
+import { MAX_PUBLISH_ATTEMPTS, POST_STATUS } from './post_manager';
 import { inspectQueueHealth } from './queue_health';
 
 const basePost = (overrides = {}) => ({
@@ -115,5 +115,47 @@ describe('queue health diagnostics', () => {
 
     expect(result.summary.byCode.orphaned_platform_result).toBe(1);
     expect(result.summary.warning).toBe(1);
+  });
+
+  test('detects scheduled and failed tasks that exceeded max attempts', () => {
+    const result = inspectQueueHealth({
+      posts: [
+        basePost({ attemptCount: MAX_PUBLISH_ATTEMPTS }),
+        basePost({ id: 'post-2', status: POST_STATUS.FAILED, attemptCount: MAX_PUBLISH_ATTEMPTS }),
+      ],
+      credentials: { facebook_token: 'token' },
+      now: new Date('2026-08-02T00:01:00.000Z').getTime(),
+    });
+
+    expect(result.summary.byCode.scheduled_exhausted_attempts).toBe(1);
+    expect(result.summary.byCode.failed_exhausted_attempts).toBe(1);
+    expect(result.healthy).toBe(false);
+  });
+
+  test('surfaces dead letter queue items for manual handling', () => {
+    const result = inspectQueueHealth({
+      posts: [basePost({
+        status: POST_STATUS.DEAD_LETTER,
+        attemptCount: MAX_PUBLISH_ATTEMPTS,
+        deadLetteredAt: '2026-08-02T00:02:00.000Z',
+      })],
+      credentials: { facebook_token: 'token' },
+      now: new Date('2026-08-02T00:03:00.000Z').getTime(),
+    });
+
+    expect(result.summary.byCode.dead_letter_item).toBe(1);
+    expect(result.summary.warning).toBe(1);
+    expect(result.healthy).toBe(true);
+  });
+
+  test('detects dead letter tasks without audit timestamp', () => {
+    const result = inspectQueueHealth({
+      posts: [basePost({ status: POST_STATUS.DEAD_LETTER })],
+      credentials: { facebook_token: 'token' },
+      now: new Date('2026-08-02T00:03:00.000Z').getTime(),
+    });
+
+    expect(result.summary.byCode.dead_letter_item).toBe(1);
+    expect(result.summary.byCode.dead_letter_missing_timestamp).toBe(1);
   });
 });
