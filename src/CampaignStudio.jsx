@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarClock, Image, Sparkles, Video } from 'lucide-react';
+import { CalendarClock, CheckCircle, Image, Save, Sparkles, Video } from 'lucide-react';
 import { buildCampaignWorkflow, validateWorkflowForScheduling } from './campaign_workflow';
+import { loadCampaignWorkflows, saveCampaignWorkflow } from './campaign_storage';
 
 const PLATFORM_OPTIONS = [
   ['facebook', 'Facebook'],
@@ -19,6 +20,8 @@ const CampaignStudio = () => {
   const [publishAt, setPublishAt] = useState('');
   const [workflow, setWorkflow] = useState(null);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [savedCount, setSavedCount] = useState(() => loadCampaignWorkflows().length);
 
   const validation = useMemo(
     () => (workflow ? validateWorkflowForScheduling(workflow) : null),
@@ -27,6 +30,7 @@ const CampaignStudio = () => {
 
   const toggleValue = (value, values, setter) => {
     setter(values.includes(value) ? values.filter((item) => item !== value) : [...values, value]);
+    setSuccess('');
   };
 
   const generateWorkflow = () => {
@@ -42,9 +46,24 @@ const CampaignStudio = () => {
       });
       setWorkflow(nextWorkflow);
       setError('');
+      setSuccess('Workflow đã được tạo. Hãy kiểm tra và lưu bản nháp.');
     } catch (nextError) {
       setWorkflow(null);
+      setSuccess('');
       setError(nextError.message || 'Không thể tạo workflow.');
+    }
+  };
+
+  const saveDraft = () => {
+    try {
+      if (!workflow) throw new Error('Chưa có workflow để lưu.');
+      saveCampaignWorkflow(workflow);
+      setSavedCount(loadCampaignWorkflows().length);
+      setError('');
+      setSuccess('Đã lưu workflow vào danh sách bản nháp trên thiết bị này.');
+    } catch (nextError) {
+      setSuccess('');
+      setError(nextError.message || 'Không thể lưu workflow.');
     }
   };
 
@@ -57,6 +76,7 @@ const CampaignStudio = () => {
           <p className="mt-2 max-w-3xl text-gray-300">
             Nhập chủ đề, chọn nền tảng và loại nội dung. Hệ thống tạo workflow ảnh/video theo đúng tỷ lệ từng kênh trước khi đưa vào hàng đợi.
           </p>
+          <p className="mt-2 text-sm text-gray-400">Bản nháp đã lưu trên thiết bị: {savedCount}</p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
@@ -67,11 +87,13 @@ const CampaignStudio = () => {
             <textarea
               id="campaign-topic"
               value={topic}
-              onChange={(event) => setTopic(event.target.value)}
+              onChange={(event) => { setTopic(event.target.value); setSuccess(''); }}
               rows={5}
+              maxLength={2000}
               placeholder="Ví dụ: Tạo chiến dịch 7 ngày quảng bá tủ bếp veneer cho khách hàng tại TP.HCM."
               className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20"
             />
+            <p className="mt-1 text-right text-xs text-gray-500">{topic.length}/2000</p>
 
             <fieldset className="mt-6">
               <legend className="text-sm font-semibold text-gray-200">Nền tảng</legend>
@@ -124,12 +146,15 @@ const CampaignStudio = () => {
                 id="campaign-publish-at"
                 type="datetime-local"
                 value={publishAt}
-                onChange={(event) => setPublishAt(event.target.value)}
+                onChange={(event) => { setPublishAt(event.target.value); setSuccess(''); }}
                 className="w-full rounded-xl border border-white/10 bg-slate-950/70 py-3 pl-11 pr-4 text-white outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20"
               />
             </div>
 
-            {error && <p className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
+            <div aria-live="polite">
+              {error && <p className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
+              {success && <p className="mt-4 flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300"><CheckCircle className="h-4 w-4" />{success}</p>}
+            </div>
 
             <button
               type="button"
@@ -141,7 +166,17 @@ const CampaignStudio = () => {
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-gray-900/70 p-5 shadow-xl">
-            <h3 className="text-lg font-bold">Bản xem trước workflow</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-lg font-bold">Bản xem trước workflow</h3>
+              <button
+                type="button"
+                onClick={saveDraft}
+                disabled={!workflow}
+                className="flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Save className="h-4 w-4" /> Lưu bản nháp
+              </button>
+            </div>
             {!workflow ? (
               <div className="mt-4 flex min-h-[420px] items-center justify-center rounded-xl border border-dashed border-white/10 bg-slate-950/40 p-8 text-center text-gray-400">
                 Workflow ảnh và video sẽ xuất hiện tại đây.
