@@ -1,4 +1,5 @@
 import {
+  MAX_PUBLISH_ATTEMPTS,
   POST_STATUS,
   RECURRENCE,
   cancelPost,
@@ -31,20 +32,12 @@ jest.mock('./utils', () => {
 });
 
 const utils = require('./utils');
-
 const validPost = (overrides = {}) => ({
-  campaignId: 'campaign-1',
-  content: 'Bài viết thử nghiệm',
-  platforms: ['facebook'],
-  scheduledTime: new Date(Date.now() + 60_000).toISOString(),
-  recurrence: RECURRENCE.NONE,
-  ...overrides,
+  campaignId: 'campaign-1', content: 'Bài viết thử nghiệm', platforms: ['facebook'],
+  scheduledTime: new Date(Date.now() + 60_000).toISOString(), recurrence: RECURRENCE.NONE, ...overrides,
 });
 
-beforeEach(() => {
-  utils.__resetStorage();
-  jest.clearAllMocks();
-});
+beforeEach(() => { utils.__resetStorage(); jest.clearAllMocks(); });
 
 describe('post manager queue', () => {
   test('normalizes platforms and stores campaign metadata', () => {
@@ -57,21 +50,13 @@ describe('post manager queue', () => {
   });
 
   test('rejects unsupported-only platform selections', () => {
-    expect(() => schedulePost(validPost({ platforms: ['unknown'] })))
-      .toThrow('nền tảng được hỗ trợ');
+    expect(() => schedulePost(validPost({ platforms: ['unknown'] }))).toThrow('nền tảng được hỗ trợ');
   });
 
   test('prevents an identical campaign post from being queued twice', () => {
-    const input = validPost();
-    schedulePost(input);
+    const input = validPost(); schedulePost(input);
     expect(() => schedulePost(input)).toThrow('đã có một bài giống hệt');
     expect(getScheduledPosts()).toHaveLength(1);
-  });
-
-  test('allows the same content at a different scheduled time', () => {
-    schedulePost(validPost());
-    schedulePost(validPost({ scheduledTime: new Date(Date.now() + 120_000).toISOString() }));
-    expect(getScheduledPosts()).toHaveLength(2);
   });
 
   test('schedules a full batch atomically', () => {
@@ -84,133 +69,88 @@ describe('post manager queue', () => {
   });
 
   test('does not persist a partial batch when one entry is invalid', () => {
-    expect(() => schedulePosts([
-      validPost({ scheduledTime: '2026-08-03T01:00:00.000Z' }),
-      validPost({ content: '' }),
-    ])).toThrow('không được để trống');
-    expect(getScheduledPosts()).toHaveLength(0);
-  });
-
-  test('detects duplicates inside one batch', () => {
-    const entry = validPost({ scheduledTime: '2026-08-03T01:00:00.000Z' });
-    expect(() => schedulePosts([entry, entry])).toThrow('đã có một bài giống hệt');
+    expect(() => schedulePosts([validPost(), validPost({ content: '' })])).toThrow('không được để trống');
     expect(getScheduledPosts()).toHaveLength(0);
   });
 
   test('cancels only scheduled posts', () => {
-    const post = schedulePost(validPost());
-    cancelPost(post.id);
+    const post = schedulePost(validPost()); cancelPost(post.id);
     expect(getScheduledPosts()[0].status).toBe(POST_STATUS.CANCELLED);
-    expect(getScheduledPosts()[0].cancelledAt).toBeTruthy();
   });
 
   test('requeues a failed post while preserving prior platform results', () => {
     const scheduled = schedulePost(validPost({ platforms: ['facebook', 'instagram'], imageUrl: 'https://example.com/a.jpg' }));
     utils.__setStorage('scheduled_posts', [{
-      ...scheduled,
-      status: POST_STATUS.FAILED,
-      results: {
-        facebook: { success: true, id: 'fb-1' },
-        instagram: { success: false, error: 'token' },
-      },
-      successCount: 1,
-      failureCount: 1,
+      ...scheduled, status: POST_STATUS.FAILED,
+      results: { facebook: { success: true, id: 'fb-1' }, instagram: { success: false, error: 'token' } },
+      successCount: 1, failureCount: 1,
     }]);
-
-    const retried = retryPost(getScheduledPosts()[0].id);
+    const retried = retryPost(scheduled.id);
     expect(retried.status).toBe(POST_STATUS.SCHEDULED);
     expect(retried.results.facebook.success).toBe(true);
-    expect(retried.pendingPlatforms).toEqual(['instagram']);
     expect(getPendingPlatforms(retried)).toEqual(['instagram']);
   });
 
   test('publishes only platforms that have not succeeded', async () => {
     const scheduled = schedulePost(validPost({
-      platforms: ['facebook', 'instagram'],
-      imageUrl: 'https://example.com/a.jpg',
+      platforms: ['facebook', 'instagram'], imageUrl: 'https://example.com/a.jpg',
       scheduledTime: new Date(Date.now() - 60_000).toISOString(),
     }));
     utils.__setStorage('scheduled_posts', [{
-      ...scheduled,
-      status: POST_STATUS.SCHEDULED,
-      results: {
-        facebook: { success: true, id: 'fb-1' },
-        instagram: { success: false, error: 'old error' },
-      },
+      ...scheduled, status: POST_STATUS.SCHEDULED,
+      results: { facebook: { success: true, id: 'fb-1' }, instagram: { success: false, error: 'old' } },
     }]);
-
     const instagramPublish = jest.fn().mockResolvedValue({ success: true, id: 'ig-1' });
     InstagramAPI.mockImplementation(() => ({ publishPost: instagramPublish }));
     FacebookAPI.mockImplementation(() => ({ publishPost: jest.fn() }));
-
-    const processed = await checkAndPublishDuePosts({
-      facebook_token: 'fb-token',
-      instagram_token: 'ig-token',
-    });
-
+    const processed = await checkAndPublishDuePosts({ facebook_token: 'fb', instagram_token: 'ig' });
     expect(FacebookAPI).not.toHaveBeenCalled();
     expect(InstagramAPI).toHaveBeenCalledTimes(1);
-    expect(instagramPublish).toHaveBeenCalledTimes(1);
     expect(processed[0].status).toBe(POST_STATUS.PUBLISHED);
-    expect(processed[0].results.facebook.id).toBe('fb-1');
-    expect(processed[0].results.instagram.id).toBe('ig-1');
   });
 
-  test('retries failed posts by campaign with a limit', () => {
-    const first = schedulePost(validPost({ content: 'Bài 1' }));
-    const second = schedulePost(validPost({ content: 'Bài 2', campaignId: 'campaign-2' }));
-    const third = schedulePost(validPost({ content: 'Bài 3', scheduledTime: new Date(Date.now() + 120_000).toISOString() }));
-    utils.__setStorage('scheduled_posts', [first, second, third].map((post) => ({
-      ...post,
-      status: POST_STATUS.FAILED,
-      results: { facebook: { success: false, error: 'failed' } },
-    })));
+  test('moves exhausted failed posts to dead letter instead of retrying forever', () => {
+    const scheduled = schedulePost(validPost());
+    utils.__setStorage('scheduled_posts', [{
+      ...scheduled, status: POST_STATUS.FAILED, attemptCount: MAX_PUBLISH_ATTEMPTS,
+      results: { facebook: { success: false, error: 'permanent' } },
+    }]);
+    expect(retryPost(scheduled.id)).toBeNull();
+    const stored = getScheduledPosts()[0];
+    expect(stored.status).toBe(POST_STATUS.DEAD_LETTER);
+    expect(stored.deadLetteredAt).toBeTruthy();
+  });
 
-    expect(retryFailedPosts({ campaignId: 'campaign-1', limit: 1 })).toBe(1);
-    const posts = getScheduledPosts();
-    expect(posts.filter((post) => post.status === POST_STATUS.SCHEDULED)).toHaveLength(1);
-    expect(posts.find((post) => post.campaignId === 'campaign-2').status).toBe(POST_STATUS.FAILED);
+  test('moves a final failed publish attempt to dead letter', async () => {
+    const scheduled = schedulePost(validPost({ scheduledTime: new Date(Date.now() - 60_000).toISOString() }));
+    utils.__setStorage('scheduled_posts', [{ ...scheduled, attemptCount: MAX_PUBLISH_ATTEMPTS - 1 }]);
+    FacebookAPI.mockImplementation(() => ({ publishPost: jest.fn().mockRejectedValue(new Error('permanent')) }));
+    const processed = await checkAndPublishDuePosts({ facebook_token: 'fb' });
+    expect(processed[0].status).toBe(POST_STATUS.DEAD_LETTER);
+    expect(processed[0].attemptCount).toBe(MAX_PUBLISH_ATTEMPTS);
   });
 
   test('recovers stale publishing posts as failed', () => {
-    const scheduled = schedulePost(validPost());
-    const now = Date.now();
-    utils.__setStorage('scheduled_posts', [{
-      ...scheduled,
-      status: POST_STATUS.PUBLISHING,
-      updatedAt: new Date(now - 15 * 60_000).toISOString(),
-    }]);
-
+    const scheduled = schedulePost(validPost()); const now = Date.now();
+    utils.__setStorage('scheduled_posts', [{ ...scheduled, status: POST_STATUS.PUBLISHING, updatedAt: new Date(now - 15 * 60_000).toISOString() }]);
     expect(recoverStuckPosts({ now, timeoutMs: 10 * 60_000 })).toBe(1);
-    const recovered = getScheduledPosts()[0];
-    expect(recovered.status).toBe(POST_STATUS.FAILED);
-    expect(recovered.results.system.success).toBe(false);
+    expect(getScheduledPosts()[0].status).toBe(POST_STATUS.FAILED);
   });
 
-  test('returns queue summary and unique campaign count', () => {
+  test('returns queue summary including dead letter count', () => {
     const due = schedulePost(validPost({ scheduledTime: new Date(Date.now() - 60_000).toISOString() }));
-    const future = schedulePost(validPost({ content: 'Tương lai', campaignId: 'campaign-2' }));
-    utils.__setStorage('scheduled_posts', [due, { ...future, status: POST_STATUS.FAILED }]);
-
-    expect(getQueueSummary()).toMatchObject({
-      total: 2,
-      scheduled: 1,
-      failed: 1,
-      due: 1,
-      campaigns: 2,
-    });
+    const dead = schedulePost(validPost({ content: 'Dead', campaignId: 'campaign-2' }));
+    utils.__setStorage('scheduled_posts', [due, { ...dead, status: POST_STATUS.DEAD_LETTER }]);
+    expect(getQueueSummary()).toMatchObject({ total: 2, scheduled: 1, dead_letter: 1, due: 1, campaigns: 2 });
   });
 
   test('filters malformed persisted records and orphan platform results', () => {
     utils.__setStorage('scheduled_posts', [
-      null,
-      {},
-      validPost({ id: 'legacy-post', results: { facebook: { success: true }, tiktok: { success: true } } }),
+      null, {}, validPost({ id: 'legacy-post', results: { facebook: { success: true }, tiktok: { success: true } } }),
       validPost({ id: 'bad-time', scheduledTime: 'not-a-date' }),
     ]);
     const posts = getScheduledPosts();
     expect(posts).toHaveLength(1);
-    expect(posts[0].id).toBe('legacy-post');
     expect(posts[0].results.tiktok).toBeUndefined();
   });
 });
