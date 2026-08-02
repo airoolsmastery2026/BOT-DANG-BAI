@@ -78,8 +78,9 @@ describe('post manager queue', () => {
   });
 
   test('requeues a failed post and clears prior results', () => {
+    const scheduled = schedulePost(validPost());
     utils.__setStorage('scheduled_posts', [{
-      ...schedulePost(validPost()),
+      ...scheduled,
       status: POST_STATUS.FAILED,
       results: { facebook: { success: false, error: 'token' } },
       failureCount: 1,
@@ -94,7 +95,12 @@ describe('post manager queue', () => {
   });
 
   test('filters malformed persisted records', () => {
-    utils.__setStorage('scheduled_posts', [null, {}, validPost({ id: 'legacy-post' })]);
+    utils.__setStorage('scheduled_posts', [
+      null,
+      {},
+      validPost({ id: 'legacy-post' }),
+      validPost({ id: 'bad-time', scheduledTime: 'not-a-date' }),
+    ]);
     const posts = getScheduledPosts();
 
     expect(posts).toHaveLength(1);
