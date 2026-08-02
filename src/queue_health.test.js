@@ -72,4 +72,48 @@ describe('queue health diagnostics', () => {
     expect(result.summary.byCode.duplicate_idempotency_key).toBe(1);
     expect(result.summary.byCode.repeated_failure).toBe(1);
   });
+
+  test('detects unsafe retry after a partial multi-platform publish', () => {
+    const result = inspectQueueHealth({
+      posts: [basePost({
+        platforms: ['facebook', 'instagram'],
+        status: POST_STATUS.FAILED,
+        results: {
+          facebook: { success: true, data: { id: 'fb-post' } },
+          instagram: { success: false, error: 'token expired' },
+        },
+      })],
+      credentials: { facebook_token: 'token', instagram_token: 'token' },
+      now: new Date('2026-08-02T00:01:00.000Z').getTime(),
+    });
+
+    expect(result.summary.byCode.partial_publish_requires_selective_retry).toBe(1);
+    expect(result.healthy).toBe(false);
+  });
+
+  test('detects scheduled tasks that still contain successful results', () => {
+    const result = inspectQueueHealth({
+      posts: [basePost({
+        status: POST_STATUS.SCHEDULED,
+        results: { facebook: { success: true } },
+      })],
+      credentials: { facebook_token: 'token' },
+      now: new Date('2026-08-02T00:01:00.000Z').getTime(),
+    });
+
+    expect(result.summary.byCode.scheduled_with_successful_results).toBe(1);
+  });
+
+  test('detects results that do not belong to the task platforms', () => {
+    const result = inspectQueueHealth({
+      posts: [basePost({
+        results: { linkedin: { success: false, error: 'unexpected' } },
+      })],
+      credentials: { facebook_token: 'token' },
+      now: new Date('2026-08-02T00:01:00.000Z').getTime(),
+    });
+
+    expect(result.summary.byCode.orphaned_platform_result).toBe(1);
+    expect(result.summary.warning).toBe(1);
+  });
 });
