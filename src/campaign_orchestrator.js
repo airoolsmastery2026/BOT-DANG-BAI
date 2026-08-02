@@ -111,8 +111,19 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
       approvalMode: run.mode === 'automatic' ? 'automatic' : 'review',
       timezone: options.timezone,
       brand: options.brand,
+      durationDays: options.durationDays,
+      postsPerDay: options.postsPerDay,
     });
-    run = { ...run, workflow };
+    run = {
+      ...run,
+      workflow,
+      metrics: {
+        ...run.metrics,
+        durationDays: workflow.campaign.durationDays,
+        postsPerDay: workflow.campaign.postsPerDay,
+        scheduleSlotCount: workflow.schedulePlan?.slots?.length || 0,
+      },
+    };
     completeStep('plan');
 
     startStep('content', CAMPAIGN_RUN_STATUS.GENERATING_CONTENT);
