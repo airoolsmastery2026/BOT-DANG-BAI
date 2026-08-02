@@ -1,11 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock3, Loader2, Play, RefreshCw, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  Loader2,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react';
 import { ZaloServerAPI } from './zalo_server_api';
 import {
   deleteLinkedInPost,
   getLinkedInPosts,
   processLinkedInPosts,
 } from './linkedin_server_api';
+import {
+  POST_STATUS,
+  deletePost,
+  getScheduledPosts,
+  retryPost,
+} from './post_manager';
 
 const readSettings = (key, defaults) => {
   try {
@@ -41,6 +56,19 @@ const formatDate = (value) => {
 
 const getErrorMessage = (error) => error?.message || 'Đã xảy ra lỗi không xác định.';
 
+const mapLocalPosts = () => getScheduledPosts().map((item) => ({
+  ...item,
+  source: 'local',
+  platform: 'social',
+  platformLabel: item.platforms.map((value) => value[0].toUpperCase() + value.slice(1)).join(', '),
+  status: normalizeStatus(item.status),
+  scheduledAt: item.scheduledTime,
+  errorText: Object.entries(item.results || {})
+    .filter(([, result]) => result?.success === false)
+    .map(([platform, result]) => `${platform}: ${result.error || 'Lỗi không xác định'}`)
+    .join(' · '),
+}));
+
 const QueueMonitor = () => {
   const settings = useMemo(() => ({
     zalo: readSettings('zalo_server_settings', { baseUrl: 'http://localhost:8787', apiKey: '' }),
@@ -67,12 +95,13 @@ const QueueMonitor = () => {
         getLinkedInPosts(settings.linkedin.serverUrl, settings.linkedin.apiKey),
       ]);
 
-      const nextJobs = [];
+      const nextJobs = mapLocalPosts();
       const errors = [];
 
       if (results[0].status === 'fulfilled') {
         toArray(results[0].value?.messages).forEach((item) => nextJobs.push({
           ...item,
+          source: 'server',
           id: item.id || item._id || `zalo-${item.createdAt || Math.random()}`,
           platform: 'zalo',
           platformLabel: 'Zalo OA',
@@ -87,6 +116,7 @@ const QueueMonitor = () => {
       if (results[1].status === 'fulfilled') {
         toArray(results[1].value).forEach((item) => nextJobs.push({
           ...item,
+          source: 'server',
           id: item.id || item._id || `linkedin-${item.createdAt || Math.random()}`,
           platform: 'linkedin',
           platformLabel: 'LinkedIn',
@@ -103,6 +133,7 @@ const QueueMonitor = () => {
       setLastUpdated(new Date());
       setNotice(errors.length ? { type: 'error', text: errors.join(' · ') } : null);
     } catch (error) {
+      setJobs(mapLocalPosts());
       setNotice({ type: 'error', text: getErrorMessage(error) });
     } finally {
       if (!silent) setLoading(false);
@@ -138,7 +169,7 @@ const QueueMonitor = () => {
       if (results[1].status === 'rejected') errors.push(`LinkedIn: ${getErrorMessage(results[1].reason)}`);
       setNotice(errors.length
         ? { type: 'error', text: `Một số hàng đợi chưa xử lý được: ${errors.join(' · ')}` }
-        : { type: 'success', text: 'Đã gửi yêu cầu xử lý cho tất cả hàng đợi.' });
+        : { type: 'success', text: 'Đã gửi yêu cầu xử lý cho hàng đợi máy chủ.' });
       await refresh(true);
     } catch (error) {
       setNotice({ type: 'error', text: getErrorMessage(error) });
@@ -153,10 +184,28 @@ const QueueMonitor = () => {
     setActionId(id);
     setNotice(null);
     try {
-      if (job.platform === 'zalo') await zaloApi.deleteMessage(job.id);
+      if (job.source === 'local') deletePost(job.id);
+      else if (job.platform === 'zalo') await zaloApi.deleteMessage(job.id);
       else await deleteLinkedInPost(settings.linkedin.serverUrl, settings.linkedin.apiKey, job.id);
       setJobs((current) => current.filter((item) => !(item.platform === job.platform && item.id === job.id)));
       setNotice({ type: 'success', text: 'Đã xóa tác vụ.' });
+    } catch (error) {
+      setNotice({ type: 'error', text: getErrorMessage(error) });
+    } finally {
+      setActionId('');
+    }
+  };
+
+  const retryJob = async (job) => {
+    if (job.source !== 'local' || job.status !== POST_STATUS.FAILED) return;
+    const id = `${job.platform}:${job.id}:retry`;
+    setActionId(id);
+    setNotice(null);
+    try {
+      const retried = retryPost(job.id);
+      if (!retried) throw new Error('Tác vụ không còn ở trạng thái có thể thử lại.');
+      await refresh(true);
+      setNotice({ type: 'success', text: 'Đã đưa tác vụ thất bại trở lại hàng đợi.' });
     } catch (error) {
       setNotice({ type: 'error', text: getErrorMessage(error) });
     } finally {
@@ -170,67 +219,82 @@ const QueueMonitor = () => {
   ];
 
   return (
-    <div className="text-white p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+    <div className="p-4 text-white md:p-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-3"><Clock3 /> Hàng đợi hợp nhất</h1>
-            <p className="text-gray-300 mt-2">Theo dõi và xử lý tác vụ Zalo OA, LinkedIn trên một màn hình.</p>
-            <p className="text-xs text-gray-500 mt-1">Cập nhật cuối: {lastUpdated ? lastUpdated.toLocaleString('vi-VN') : 'chưa đồng bộ'}</p>
+            <h1 className="flex items-center gap-3 text-3xl font-bold md:text-4xl"><Clock3 /> Hàng đợi hợp nhất</h1>
+            <p className="mt-2 text-gray-300">Theo dõi tác vụ Facebook, Instagram, TikTok, Zalo OA và LinkedIn trên một màn hình.</p>
+            <p className="mt-1 text-xs text-gray-500">Cập nhật cuối: {lastUpdated ? lastUpdated.toLocaleString('vi-VN') : 'chưa đồng bộ'}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => refresh()} disabled={loading || Boolean(actionId)} className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded-lg px-4 py-2 flex items-center gap-2">
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Đồng bộ
+            <button type="button" onClick={() => refresh()} disabled={loading || Boolean(actionId)} className="flex items-center gap-2 rounded-lg bg-gray-700 px-4 py-2 hover:bg-gray-600 disabled:opacity-50">
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Đồng bộ
             </button>
-            <button onClick={processQueues} disabled={Boolean(actionId) || loading} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 rounded-lg px-4 py-2 flex items-center gap-2">
-              {actionId === 'process' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />} Xử lý hàng đợi
+            <button type="button" onClick={processQueues} disabled={Boolean(actionId) || loading} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 hover:bg-purple-700 disabled:opacity-50">
+              {actionId === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Xử lý hàng đợi máy chủ
             </button>
           </div>
         </div>
 
         {notice && (
-          <div role="status" className={`border rounded-lg p-3 flex items-start gap-2 ${notice.type === 'error' ? 'border-red-500/40 bg-red-500/10 text-red-200' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'}`}>
-            {notice.type === 'error' ? <AlertTriangle className="w-5 h-5 shrink-0" /> : <CheckCircle2 className="w-5 h-5 shrink-0" />}
+          <div role="status" className={`flex items-start gap-2 rounded-lg border p-3 ${notice.type === 'error' ? 'border-red-500/40 bg-red-500/10 text-red-200' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'}`}>
+            {notice.type === 'error' ? <AlertTriangle className="h-5 w-5 shrink-0" /> : <CheckCircle2 className="h-5 w-5 shrink-0" />}
             <span>{notice.text}</span>
           </div>
         )}
 
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           {cards.map(([label, value]) => (
-            <div key={label} className="bg-gray-800 border border-gray-700 rounded-xl p-4">
-              <p className="text-sm text-gray-400">{label}</p><p className="text-3xl font-bold mt-2">{value}</p>
+            <div key={label} className="rounded-xl border border-gray-700 bg-gray-800 p-4">
+              <p className="text-sm text-gray-400">{label}</p><p className="mt-2 text-3xl font-bold">{value}</p>
             </div>
           ))}
         </div>
 
         <div className="flex flex-wrap gap-2" role="group" aria-label="Lọc hàng đợi theo nền tảng">
-          {[["all", "Tất cả"], ["zalo", "Zalo OA"], ["linkedin", "LinkedIn"]].map(([value, label]) => (
-            <button key={value} onClick={() => setFilter(value)} aria-pressed={filter === value} className={`px-4 py-2 rounded-lg ${filter === value ? 'bg-purple-600' : 'bg-gray-800 hover:bg-gray-700'}`}>{label}</button>
+          {[
+            ['all', 'Tất cả'],
+            ['social', 'Facebook / Instagram / TikTok'],
+            ['zalo', 'Zalo OA'],
+            ['linkedin', 'LinkedIn'],
+          ].map(([value, label]) => (
+            <button type="button" key={value} onClick={() => setFilter(value)} aria-pressed={filter === value} className={`rounded-lg px-4 py-2 ${filter === value ? 'bg-purple-600' : 'bg-gray-800 hover:bg-gray-700'}`}>{label}</button>
           ))}
         </div>
 
-        <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
+        <div className="overflow-hidden rounded-xl border border-gray-700 bg-gray-800">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px]">
+            <table className="w-full min-w-[900px]">
               <thead className="bg-gray-900/70 text-left text-sm text-gray-400"><tr><th className="p-4">Nền tảng</th><th className="p-4">Nội dung</th><th className="p-4">Thời gian</th><th className="p-4">Trạng thái</th><th className="p-4 text-right">Thao tác</th></tr></thead>
               <tbody>
                 {filteredJobs.map((job) => {
                   const rowActionId = `${job.platform}:${job.id}`;
+                  const retryActionId = `${rowActionId}:retry`;
                   return (
                     <tr key={rowActionId} className="border-t border-gray-700 align-top">
                       <td className="p-4 font-medium">{job.platformLabel}</td>
-                      <td className="p-4 text-gray-300 max-w-xl"><p className="line-clamp-3 whitespace-pre-wrap break-words">{job.content || 'Không có nội dung'}</p></td>
+                      <td className="max-w-xl p-4 text-gray-300">
+                        <p className="line-clamp-3 whitespace-pre-wrap break-words">{job.content || 'Không có nội dung'}</p>
+                        {job.campaignId && <p className="mt-1 text-xs text-purple-300">Campaign: {job.campaignId}</p>}
+                        {job.errorText && <p className="mt-1 text-xs text-red-300">{job.errorText}</p>}
+                      </td>
                       <td className="p-4 text-sm text-gray-400">{formatDate(job.scheduledAt)}</td>
-                      <td className="p-4"><span className={`inline-flex border rounded-full px-2.5 py-1 text-xs ${statusClass(job.status)}`}>{statusLabel[job.status] || job.status}</span></td>
+                      <td className="p-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs ${statusClass(job.status)}`}>{statusLabel[job.status] || job.status}</span></td>
                       <td className="p-4 text-right">
-                        <button onClick={() => removeJob(job)} disabled={Boolean(actionId)} className="text-red-300 hover:text-red-200 disabled:opacity-50 p-2" aria-label={`Xóa tác vụ ${job.platformLabel}`} title="Xóa tác vụ">
-                          {actionId === rowActionId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        {job.source === 'local' && job.status === POST_STATUS.FAILED && (
+                          <button type="button" onClick={() => retryJob(job)} disabled={Boolean(actionId)} className="p-2 text-amber-300 hover:text-amber-200 disabled:opacity-50" aria-label="Thử lại tác vụ" title="Thử lại">
+                            {actionId === retryActionId ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                          </button>
+                        )}
+                        <button type="button" onClick={() => removeJob(job)} disabled={Boolean(actionId)} className="p-2 text-red-300 hover:text-red-200 disabled:opacity-50" aria-label={`Xóa tác vụ ${job.platformLabel}`} title="Xóa tác vụ">
+                          {actionId === rowActionId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                         </button>
                       </td>
                     </tr>
                   );
                 })}
-                {loading && filteredJobs.length === 0 && <tr><td colSpan="5" className="p-10 text-center text-gray-400"><Loader2 className="w-5 h-5 animate-spin inline mr-2" />Đang tải hàng đợi...</td></tr>}
+                {loading && filteredJobs.length === 0 && <tr><td colSpan="5" className="p-10 text-center text-gray-400"><Loader2 className="mr-2 inline h-5 w-5 animate-spin" />Đang tải hàng đợi...</td></tr>}
                 {!loading && filteredJobs.length === 0 && <tr><td colSpan="5" className="p-10 text-center text-gray-400">Chưa có tác vụ trong hàng đợi.</td></tr>}
               </tbody>
             </table>
