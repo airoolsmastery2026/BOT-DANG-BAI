@@ -5,6 +5,7 @@ import {
   getScheduledPosts,
   retryPost,
   schedulePost,
+  schedulePosts,
 } from './post_manager';
 
 jest.mock('./api_handler', () => ({
@@ -41,7 +42,6 @@ beforeEach(() => {
 describe('post manager queue', () => {
   test('normalizes platforms and stores campaign metadata', () => {
     const post = schedulePost(validPost({ platforms: ['Facebook', 'facebook', 'unknown'] }));
-
     expect(post.platforms).toEqual(['facebook']);
     expect(post.campaignId).toBe('campaign-1');
     expect(post.idempotencyKey).toContain('campaign-1');
@@ -57,7 +57,6 @@ describe('post manager queue', () => {
   test('prevents an identical campaign post from being queued twice', () => {
     const input = validPost();
     schedulePost(input);
-
     expect(() => schedulePost(input)).toThrow('đã có một bài giống hệt');
     expect(getScheduledPosts()).toHaveLength(1);
   });
@@ -65,14 +64,35 @@ describe('post manager queue', () => {
   test('allows the same content at a different scheduled time', () => {
     schedulePost(validPost());
     schedulePost(validPost({ scheduledTime: new Date(Date.now() + 120_000).toISOString() }));
-
     expect(getScheduledPosts()).toHaveLength(2);
+  });
+
+  test('schedules a full batch atomically', () => {
+    const posts = schedulePosts([
+      validPost({ scheduledTime: '2026-08-03T01:00:00.000Z' }),
+      validPost({ scheduledTime: '2026-08-04T01:00:00.000Z' }),
+    ]);
+    expect(posts).toHaveLength(2);
+    expect(getScheduledPosts()).toHaveLength(2);
+  });
+
+  test('does not persist a partial batch when one entry is invalid', () => {
+    expect(() => schedulePosts([
+      validPost({ scheduledTime: '2026-08-03T01:00:00.000Z' }),
+      validPost({ content: '' }),
+    ])).toThrow('không được để trống');
+    expect(getScheduledPosts()).toHaveLength(0);
+  });
+
+  test('detects duplicates inside one batch', () => {
+    const entry = validPost({ scheduledTime: '2026-08-03T01:00:00.000Z' });
+    expect(() => schedulePosts([entry, entry])).toThrow('đã có một bài giống hệt');
+    expect(getScheduledPosts()).toHaveLength(0);
   });
 
   test('cancels only scheduled posts', () => {
     const post = schedulePost(validPost());
     cancelPost(post.id);
-
     expect(getScheduledPosts()[0].status).toBe(POST_STATUS.CANCELLED);
     expect(getScheduledPosts()[0].cancelledAt).toBeTruthy();
   });
@@ -86,9 +106,7 @@ describe('post manager queue', () => {
       failureCount: 1,
     }]);
 
-    const failed = getScheduledPosts()[0];
-    const retried = retryPost(failed.id);
-
+    const retried = retryPost(getScheduledPosts()[0].id);
     expect(retried.status).toBe(POST_STATUS.SCHEDULED);
     expect(retried.results).toEqual({});
     expect(retried.failureCount).toBeUndefined();
@@ -102,7 +120,6 @@ describe('post manager queue', () => {
       validPost({ id: 'bad-time', scheduledTime: 'not-a-date' }),
     ]);
     const posts = getScheduledPosts();
-
     expect(posts).toHaveLength(1);
     expect(posts[0].id).toBe('legacy-post');
   });
