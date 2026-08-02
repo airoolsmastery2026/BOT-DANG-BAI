@@ -174,6 +174,87 @@ export const retryPost = (postId) => {
   return retried;
 };
 
+export const retryFailedPosts = ({ campaignId = null, limit = 100 } = {}) => {
+  const normalizedCampaignId = campaignId ? String(campaignId).trim() : null;
+  const safeLimit = Math.min(Math.max(Number(limit) || 1, 1), 1000);
+  const now = new Date().toISOString();
+  let retriedCount = 0;
+
+  const updated = getScheduledPosts().map((post) => {
+    if (post.status !== POST_STATUS.FAILED || retriedCount >= safeLimit) return post;
+    if (normalizedCampaignId && post.campaignId !== normalizedCampaignId) return post;
+    retriedCount += 1;
+    return {
+      ...post,
+      status: POST_STATUS.SCHEDULED,
+      scheduledTime: now,
+      updatedAt: now,
+      publishedAt: undefined,
+      results: {},
+      successCount: undefined,
+      failureCount: undefined,
+    };
+  });
+
+  if (retriedCount) persist(updated);
+  return retriedCount;
+};
+
+export const recoverStuckPosts = ({ timeoutMs = 10 * 60_000, now = Date.now() } = {}) => {
+  const safeTimeout = Math.max(Number(timeoutMs) || 0, 60_000);
+  const nowIso = new Date(now).toISOString();
+  let recoveredCount = 0;
+
+  const updated = getScheduledPosts().map((post) => {
+    if (post.status !== POST_STATUS.PUBLISHING) return post;
+    const lastUpdate = new Date(post.updatedAt || post.scheduledTime).getTime();
+    if (!Number.isFinite(lastUpdate) || now - lastUpdate < safeTimeout) return post;
+
+    recoveredCount += 1;
+    return {
+      ...post,
+      status: POST_STATUS.FAILED,
+      updatedAt: nowIso,
+      results: {
+        ...post.results,
+        system: {
+          success: false,
+          error: 'Tác vụ bị kẹt ở trạng thái đang đăng và đã được khôi phục.',
+        },
+      },
+      failureCount: Math.max(Number(post.failureCount || 0), 1),
+    };
+  });
+
+  if (recoveredCount) persist(updated);
+  return recoveredCount;
+};
+
+export const getQueueSummary = () => {
+  const posts = getScheduledPosts();
+  const summary = {
+    total: posts.length,
+    scheduled: 0,
+    publishing: 0,
+    published: 0,
+    failed: 0,
+    cancelled: 0,
+    due: 0,
+    campaigns: 0,
+  };
+  const campaigns = new Set();
+  const now = Date.now();
+
+  posts.forEach((post) => {
+    if (Object.prototype.hasOwnProperty.call(summary, post.status)) summary[post.status] += 1;
+    if (post.status === POST_STATUS.SCHEDULED && new Date(post.scheduledTime).getTime() <= now) summary.due += 1;
+    if (post.campaignId) campaigns.add(post.campaignId);
+  });
+
+  summary.campaigns = campaigns.size;
+  return summary;
+};
+
 export const deletePost = (postId) => {
   const normalizedId = String(postId || '');
   const posts = getScheduledPosts().filter((post) => post.id !== normalizedId);
@@ -228,6 +309,7 @@ const publishToPlatforms = async (post, credentials = {}) => {
 };
 
 export const checkAndPublishDuePosts = async (credentials = {}) => {
+  recoverStuckPosts();
   const posts = getScheduledPosts();
   const now = Date.now();
   const updatedPosts = [...posts];
