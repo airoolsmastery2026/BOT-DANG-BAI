@@ -7,12 +7,14 @@ import {
   retryFailedPosts,
 } from './post_manager';
 import { inspectQueueHealth } from './queue_health';
+import { inspectPublisherPreflight } from './publisher_preflight';
 
 const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
   const [action, setAction] = useState('');
   const [notice, setNotice] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [healthReport, setHealthReport] = useState(null);
+  const [preflightReport, setPreflightReport] = useState(null);
 
   const summary = useMemo(() => getQueueSummary(), [refreshKey]);
   const credentialCount = Object.values(apiCredentials).filter(Boolean).length;
@@ -22,19 +24,38 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
     onQueueChanged?.();
   };
 
+  const refreshDiagnostics = () => {
+    setHealthReport(inspectQueueHealth({ credentials: apiCredentials }));
+    setPreflightReport(inspectPublisherPreflight({ credentials: apiCredentials }));
+  };
+
   const processDue = async () => {
     setAction('process');
     setNotice(null);
     try {
+      const preflight = inspectPublisherPreflight({ credentials: apiCredentials });
+      setPreflightReport(preflight);
+
+      if (preflight.dueCount === 0) {
+        setNotice({ type: 'success', text: 'Không có bài local nào đến hạn.' });
+        return;
+      }
+
+      if (preflight.runnableCount === 0) {
+        setNotice({
+          type: 'error',
+          text: `${preflight.blockedCount} bài đến hạn đang bị chặn vì thiếu token, nội dung hoặc media.`,
+        });
+        return;
+      }
+
       const processed = await checkAndPublishDuePosts(apiCredentials);
       const failed = processed.filter((post) => post.status === 'failed').length;
       setNotice({
-        type: failed ? 'error' : 'success',
-        text: processed.length
-          ? `Đã xử lý ${processed.length} bài đến hạn${failed ? `, ${failed} bài thất bại` : ''}.`
-          : 'Không có bài local nào đến hạn.',
+        type: failed || preflight.blockedCount ? 'error' : 'success',
+        text: `Đã xử lý ${processed.length} bài${failed ? `, ${failed} bài thất bại` : ''}${preflight.blockedCount ? `; ${preflight.blockedCount} bài bị chặn bởi preflight` : ''}.`,
       });
-      setHealthReport(inspectQueueHealth({ credentials: apiCredentials }));
+      refreshDiagnostics();
       finish();
     } catch (error) {
       setNotice({ type: 'error', text: error?.message || 'Không thể xử lý hàng đợi local.' });
@@ -54,7 +75,7 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
           ? `Đã khôi phục ${recovered} tác vụ bị kẹt.`
           : 'Không phát hiện tác vụ publishing bị kẹt.',
       });
-      setHealthReport(inspectQueueHealth({ credentials: apiCredentials }));
+      refreshDiagnostics();
       finish();
     } catch (error) {
       setNotice({ type: 'error', text: error?.message || 'Không thể khôi phục tác vụ.' });
@@ -74,7 +95,7 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
           ? `Đã đưa ${retried} tác vụ thất bại trở lại hàng đợi.`
           : 'Không có tác vụ thất bại để thử lại.',
       });
-      setHealthReport(inspectQueueHealth({ credentials: apiCredentials }));
+      refreshDiagnostics();
       finish();
     } catch (error) {
       setNotice({ type: 'error', text: error?.message || 'Không thể thử lại hàng loạt.' });
@@ -88,12 +109,12 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
     setNotice(null);
     try {
       const report = inspectQueueHealth({ credentials: apiCredentials });
+      const preflight = inspectPublisherPreflight({ credentials: apiCredentials });
       setHealthReport(report);
+      setPreflightReport(preflight);
       setNotice({
-        type: report.healthy ? 'success' : 'error',
-        text: report.summary.total
-          ? `Đã phát hiện ${report.summary.error} lỗi và ${report.summary.warning} cảnh báo.`
-          : 'Hàng đợi local không có vấn đề được phát hiện.',
+        type: report.healthy && preflight.blockedCount === 0 ? 'success' : 'error',
+        text: `Sức khỏe: ${report.summary.error} lỗi, ${report.summary.warning} cảnh báo. Preflight: ${preflight.runnableCount} chạy được, ${preflight.blockedCount} bị chặn.`,
       });
     } catch (error) {
       setNotice({ type: 'error', text: error?.message || 'Không thể kiểm tra sức khỏe hàng đợi.' });
@@ -112,6 +133,11 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
             <p className="mt-1 text-sm text-gray-400">
               {summary.scheduled} chờ · {summary.due} đến hạn · {summary.failed} thất bại · {credentialCount}/3 token trong phiên
             </p>
+            {preflightReport && (
+              <p className="mt-1 text-xs text-sky-300">
+                Preflight: {preflightReport.runnableCount} sẵn sàng · {preflightReport.blockedCount} bị chặn
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={processDue} disabled={Boolean(action)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold hover:bg-emerald-500 disabled:opacity-40">
@@ -133,6 +159,21 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
           <div role="status" className={`mt-4 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${notice.type === 'error' ? 'border-red-500/40 bg-red-500/10 text-red-200' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'}`}>
             {notice.type === 'error' ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
             <span>{notice.text}</span>
+          </div>
+        )}
+
+        {preflightReport?.issues.length > 0 && (
+          <div className="mt-4 rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-200">Publisher Preflight</p>
+            <div className="max-h-48 space-y-2 overflow-auto pr-1">
+              {preflightReport.issues.slice(0, 30).map((item, index) => (
+                <div key={`${item.code}-${item.postId || 'post'}-${index}`} className="rounded-lg border border-violet-500/20 px-3 py-2 text-xs text-violet-100">
+                  <strong>{item.code}</strong>: {item.message}
+                  {item.postId && <span className="ml-1 text-gray-400">· {item.postId}</span>}
+                  {item.platform && <span className="ml-1 text-gray-400">· {item.platform}</span>}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
