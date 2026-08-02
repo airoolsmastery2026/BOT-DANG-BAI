@@ -1,8 +1,6 @@
 /**
  * Post Manager - quản lý hàng đợi bài đăng, lên lịch và tự động đăng.
- *
- * Đây là scheduler chạy phía trình duyệt. Tác vụ chỉ được kiểm tra khi ứng
- * dụng đang mở. Scheduler phía server sẽ được kết nối ở giai đoạn vận hành.
+ * Scheduler này chạy phía trình duyệt; tác vụ chỉ được kiểm tra khi ứng dụng mở.
  */
 
 import { FacebookAPI, InstagramAPI, TikTokAPI } from './api_handler';
@@ -38,13 +36,18 @@ const normalizeRecurrence = (recurrence) => (
   Object.values(RECURRENCE).includes(recurrence) ? recurrence : RECURRENCE.NONE
 );
 
+const normalizeResults = (results, platforms) => {
+  if (!results || typeof results !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(results).filter(([platform]) => platforms.includes(platform) || platform === 'system'),
+  );
+};
+
 const normalizeStoredPost = (post) => {
   if (!post || typeof post !== 'object' || !post.id) return null;
   const platforms = normalizePlatforms(post.platforms);
   const scheduledDate = new Date(post.scheduledTime);
-  if (!platforms.length || !String(post.content || '').trim() || Number.isNaN(scheduledDate.getTime())) {
-    return null;
-  }
+  if (!platforms.length || !String(post.content || '').trim() || Number.isNaN(scheduledDate.getTime())) return null;
 
   return {
     ...post,
@@ -58,7 +61,7 @@ const normalizeStoredPost = (post) => {
     recurrence: normalizeRecurrence(post.recurrence),
     targetIds: post.targetIds && typeof post.targetIds === 'object' ? post.targetIds : {},
     status: Object.values(POST_STATUS).includes(post.status) ? post.status : POST_STATUS.SCHEDULED,
-    results: post.results && typeof post.results === 'object' ? post.results : {},
+    results: normalizeResults(post.results, platforms),
   };
 };
 
@@ -73,6 +76,9 @@ const buildIdempotencyKey = ({ campaignId, platforms, scheduledTime, content }) 
   if (!campaignId) return null;
   return [campaignId, [...platforms].sort().join(','), scheduledTime, content.slice(0, 120)].join('|');
 };
+
+export const getPendingPlatforms = (post) => normalizePlatforms(post?.platforms)
+  .filter((platform) => post?.results?.[platform]?.success !== true);
 
 export const getScheduledPosts = () => {
   const posts = getFromLocalStorage(STORAGE_KEY, []);
@@ -98,19 +104,12 @@ const prepareScheduledPost = (post, existingPosts = [], batchKeys = new Set()) =
   if (idempotencyKey && (
     existingPosts.some((item) => item.idempotencyKey === idempotencyKey)
     || batchKeys.has(idempotencyKey)
-  )) {
-    throw new Error('Chiến dịch này đã có một bài giống hệt trong hàng đợi.');
-  }
+  )) throw new Error('Chiến dịch này đã có một bài giống hệt trong hàng đợi.');
 
   if (idempotencyKey) batchKeys.add(idempotencyKey);
   const now = new Date().toISOString();
   return {
-    id: createPostId(),
-    campaignId,
-    idempotencyKey,
-    content,
-    platforms,
-    scheduledTime,
+    id: createPostId(), campaignId, idempotencyKey, content, platforms, scheduledTime,
     imageUrl: String(post.imageUrl || '').trim(),
     videoUrl: String(post.videoUrl || '').trim(),
     recurrence: normalizeRecurrence(post.recurrence),
@@ -124,11 +123,8 @@ const prepareScheduledPost = (post, existingPosts = [], batchKeys = new Set()) =
 };
 
 export const schedulePosts = (entries) => {
-  if (!Array.isArray(entries) || entries.length === 0) {
-    throw new Error('Danh sách bài cần lên lịch không được để trống.');
-  }
+  if (!Array.isArray(entries) || entries.length === 0) throw new Error('Danh sách bài cần lên lịch không được để trống.');
   if (entries.length > 1000) throw new Error('Mỗi lần chỉ được xếp tối đa 1000 bài.');
-
   const existingPosts = getScheduledPosts();
   const batchKeys = new Set();
   const prepared = entries.map((entry) => prepareScheduledPost(entry, existingPosts, batchKeys));
@@ -150,26 +146,30 @@ export const cancelPost = (postId) => {
   return updated;
 };
 
+const prepareRetry = (post, now) => {
+  const pendingPlatforms = getPendingPlatforms(post);
+  if (!pendingPlatforms.length) return null;
+  return {
+    ...post,
+    status: POST_STATUS.SCHEDULED,
+    scheduledTime: now,
+    updatedAt: now,
+    publishedAt: undefined,
+    pendingPlatforms,
+    successCount: post.platforms.length - pendingPlatforms.length,
+    failureCount: pendingPlatforms.length,
+  };
+};
+
 export const retryPost = (postId) => {
   const normalizedId = String(postId || '');
   const now = new Date().toISOString();
   let retried = null;
-
   const updated = getScheduledPosts().map((post) => {
     if (post.id !== normalizedId || post.status !== POST_STATUS.FAILED) return post;
-    retried = {
-      ...post,
-      status: POST_STATUS.SCHEDULED,
-      scheduledTime: now,
-      updatedAt: now,
-      publishedAt: undefined,
-      results: {},
-      successCount: undefined,
-      failureCount: undefined,
-    };
-    return retried;
+    retried = prepareRetry(post, now);
+    return retried || post;
   });
-
   if (retried) persist(updated);
   return retried;
 };
@@ -179,23 +179,14 @@ export const retryFailedPosts = ({ campaignId = null, limit = 100 } = {}) => {
   const safeLimit = Math.min(Math.max(Number(limit) || 1, 1), 1000);
   const now = new Date().toISOString();
   let retriedCount = 0;
-
   const updated = getScheduledPosts().map((post) => {
     if (post.status !== POST_STATUS.FAILED || retriedCount >= safeLimit) return post;
     if (normalizedCampaignId && post.campaignId !== normalizedCampaignId) return post;
+    const retried = prepareRetry(post, now);
+    if (!retried) return post;
     retriedCount += 1;
-    return {
-      ...post,
-      status: POST_STATUS.SCHEDULED,
-      scheduledTime: now,
-      updatedAt: now,
-      publishedAt: undefined,
-      results: {},
-      successCount: undefined,
-      failureCount: undefined,
-    };
+    return retried;
   });
-
   if (retriedCount) persist(updated);
   return retriedCount;
 };
@@ -204,12 +195,10 @@ export const recoverStuckPosts = ({ timeoutMs = 10 * 60_000, now = Date.now() } 
   const safeTimeout = Math.max(Number(timeoutMs) || 0, 60_000);
   const nowIso = new Date(now).toISOString();
   let recoveredCount = 0;
-
   const updated = getScheduledPosts().map((post) => {
     if (post.status !== POST_STATUS.PUBLISHING) return post;
     const lastUpdate = new Date(post.updatedAt || post.scheduledTime).getTime();
     if (!Number.isFinite(lastUpdate) || now - lastUpdate < safeTimeout) return post;
-
     recoveredCount += 1;
     return {
       ...post,
@@ -217,40 +206,25 @@ export const recoverStuckPosts = ({ timeoutMs = 10 * 60_000, now = Date.now() } 
       updatedAt: nowIso,
       results: {
         ...post.results,
-        system: {
-          success: false,
-          error: 'Tác vụ bị kẹt ở trạng thái đang đăng và đã được khôi phục.',
-        },
+        system: { success: false, error: 'Tác vụ bị kẹt ở trạng thái đang đăng và đã được khôi phục.' },
       },
       failureCount: Math.max(Number(post.failureCount || 0), 1),
     };
   });
-
   if (recoveredCount) persist(updated);
   return recoveredCount;
 };
 
 export const getQueueSummary = () => {
   const posts = getScheduledPosts();
-  const summary = {
-    total: posts.length,
-    scheduled: 0,
-    publishing: 0,
-    published: 0,
-    failed: 0,
-    cancelled: 0,
-    due: 0,
-    campaigns: 0,
-  };
+  const summary = { total: posts.length, scheduled: 0, publishing: 0, published: 0, failed: 0, cancelled: 0, due: 0, campaigns: 0 };
   const campaigns = new Set();
   const now = Date.now();
-
   posts.forEach((post) => {
     if (Object.prototype.hasOwnProperty.call(summary, post.status)) summary[post.status] += 1;
     if (post.status === POST_STATUS.SCHEDULED && new Date(post.scheduledTime).getTime() <= now) summary.due += 1;
     if (post.campaignId) campaigns.add(post.campaignId);
   });
-
   summary.campaigns = campaigns.size;
   return summary;
 };
@@ -262,37 +236,27 @@ export const deletePost = (postId) => {
   return posts;
 };
 
-const failedResult = (error) => ({
-  success: false,
-  error: error instanceof Error ? error.message : String(error || 'Lỗi không xác định'),
-});
+const failedResult = (error) => ({ success: false, error: error instanceof Error ? error.message : String(error || 'Lỗi không xác định') });
+const normalizePublishResult = (value) => (value && typeof value === 'object' && typeof value.success === 'boolean'
+  ? value
+  : { success: true, data: value ?? null });
 
-const normalizePublishResult = (value) => {
-  if (value && typeof value === 'object' && typeof value.success === 'boolean') return value;
-  return { success: true, data: value ?? null };
-};
-
-const publishToPlatforms = async (post, credentials = {}) => {
+const publishToPlatforms = async (post, credentials = {}, platforms = post.platforms) => {
   const results = {};
-
-  for (const platform of post.platforms) {
+  for (const platform of normalizePlatforms(platforms)) {
     try {
       if (platform === 'facebook') {
         if (!credentials.facebook_token) throw new Error('Thiếu Facebook access token.');
         const api = new FacebookAPI(credentials.facebook_token);
         results.facebook = normalizePublishResult(await api.publishPost(
-          post.targetIds.facebook || 'me',
-          post.content,
-          { imageUrl: post.imageUrl || undefined },
+          post.targetIds.facebook || 'me', post.content, { imageUrl: post.imageUrl || undefined },
         ));
       } else if (platform === 'instagram') {
         if (!credentials.instagram_token) throw new Error('Thiếu Instagram access token.');
         if (!post.imageUrl) throw new Error('Instagram yêu cầu URL ảnh.');
         const api = new InstagramAPI(credentials.instagram_token);
         results.instagram = normalizePublishResult(await api.publishPost(
-          post.targetIds.instagram || 'me',
-          post.imageUrl,
-          post.content,
+          post.targetIds.instagram || 'me', post.imageUrl, post.content,
         ));
       } else if (platform === 'tiktok') {
         if (!credentials.tiktok_token) throw new Error('Thiếu TikTok access token.');
@@ -304,7 +268,6 @@ const publishToPlatforms = async (post, credentials = {}) => {
       results[platform] = failedResult(error);
     }
   }
-
   return results;
 };
 
@@ -319,32 +282,39 @@ export const checkAndPublishDuePosts = async (credentials = {}) => {
   for (let index = 0; index < updatedPosts.length; index += 1) {
     const post = updatedPosts[index];
     if (post.status !== POST_STATUS.SCHEDULED) continue;
-
     const scheduledAt = new Date(post.scheduledTime).getTime();
     if (Number.isNaN(scheduledAt) || scheduledAt > now) continue;
+
+    const platformsToPublish = getPendingPlatforms(post);
+    if (!platformsToPublish.length) {
+      updatedPosts[index] = { ...post, status: POST_STATUS.PUBLISHED, updatedAt: new Date().toISOString() };
+      continue;
+    }
 
     const publishingPost = {
       ...post,
       status: POST_STATUS.PUBLISHING,
+      pendingPlatforms: platformsToPublish,
       updatedAt: new Date().toISOString(),
       attemptCount: Number(post.attemptCount || 0) + 1,
     };
     updatedPosts[index] = publishingPost;
     persist(updatedPosts);
 
-    const results = await publishToPlatforms(publishingPost, credentials);
-    const attempts = Object.values(results);
-    const successCount = attempts.filter((result) => result?.success === true).length;
+    const newResults = await publishToPlatforms(publishingPost, credentials, platformsToPublish);
+    const results = { ...publishingPost.results, ...newResults };
+    const platformResults = publishingPost.platforms.map((platform) => results[platform]);
+    const successCount = platformResults.filter((result) => result?.success === true).length;
+    const failureCount = publishingPost.platforms.length - successCount;
     const completedPost = {
       ...publishingPost,
       results,
-      status: successCount === attempts.length && attempts.length > 0
-        ? POST_STATUS.PUBLISHED
-        : POST_STATUS.FAILED,
+      pendingPlatforms: publishingPost.platforms.filter((platform) => results[platform]?.success !== true),
+      status: failureCount === 0 ? POST_STATUS.PUBLISHED : POST_STATUS.FAILED,
       publishedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       successCount,
-      failureCount: attempts.length - successCount,
+      failureCount,
     };
 
     updatedPosts[index] = completedPost;
@@ -367,6 +337,7 @@ export const checkAndPublishDuePosts = async (credentials = {}) => {
         updatedAt: new Date().toISOString(),
         publishedAt: undefined,
         results: {},
+        pendingPlatforms: completedPost.platforms,
         successCount: undefined,
         failureCount: undefined,
         attemptCount: 0,
