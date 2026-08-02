@@ -15,6 +15,7 @@ import ZaloControl from './ZaloControl';
 import LinkedInControl from './LinkedInControl';
 import SystemDashboard from './SystemDashboard';
 import QueueMonitor from './QueueMonitor';
+import QueueRuntimeControls from './QueueRuntimeControls';
 import NotificationCenter from './NotificationCenter';
 import CampaignStudio from './CampaignStudio';
 import CampaignDrafts from './CampaignDrafts';
@@ -54,6 +55,7 @@ const getInitialTab = () => {
 const App = () => {
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [apiCredentials, setApiCredentials] = useState(loadPlatformCredentials);
+  const [queueRefreshKey, setQueueRefreshKey] = useState(0);
 
   const connectedPlatforms = useMemo(
     () => getConnectedPlatforms(apiCredentials),
@@ -124,7 +126,15 @@ const App = () => {
         {activeTab === 'dashboard' && <SystemDashboard onNavigate={setActiveTab} />}
         {activeTab === 'studio' && <CampaignStudio />}
         {activeTab === 'drafts' && <CampaignDrafts onNavigate={setActiveTab} />}
-        {activeTab === 'queue' && <QueueMonitor apiCredentials={apiCredentials} />}
+        {activeTab === 'queue' && (
+          <>
+            <QueueRuntimeControls
+              apiCredentials={apiCredentials}
+              onQueueChanged={() => setQueueRefreshKey((value) => value + 1)}
+            />
+            <QueueMonitor key={queueRefreshKey} apiCredentials={apiCredentials} />
+          </>
+        )}
         {activeTab === 'connections' && (
           <PlatformConnections credentials={apiCredentials} onChange={setApiCredentials} />
         )}
