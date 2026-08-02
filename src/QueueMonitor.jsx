@@ -37,11 +37,13 @@ const toArray = (value) => (Array.isArray(value) ? value : []);
 const statusLabel = {
   scheduled: 'Đã lên lịch', pending: 'Đang chờ', queued: 'Đang chờ',
   publishing: 'Đang xử lý', processing: 'Đang xử lý', sent: 'Đã gửi',
-  published: 'Đã đăng', success: 'Thành công', failed: 'Thất bại', cancelled: 'Đã hủy',
+  published: 'Đã đăng', success: 'Thành công', failed: 'Thất bại',
+  dead_letter: 'Dead Letter', cancelled: 'Đã hủy',
 };
 
 const statusClass = (status) => {
   if (['sent', 'published', 'success'].includes(status)) return 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30';
+  if (status === 'dead_letter') return 'text-rose-200 bg-rose-500/15 border-rose-500/40';
   if (status === 'failed') return 'text-red-300 bg-red-500/10 border-red-500/30';
   if (['publishing', 'processing'].includes(status)) return 'text-amber-300 bg-amber-500/10 border-amber-500/30';
   if (status === 'cancelled') return 'text-gray-300 bg-gray-500/10 border-gray-500/30';
@@ -56,6 +58,12 @@ const formatDate = (value) => {
 
 const getErrorMessage = (error) => error?.message || 'Đã xảy ra lỗi không xác định.';
 
+const formatPendingPlatforms = (item) => {
+  const pending = Array.isArray(item.pendingPlatforms) ? item.pendingPlatforms : [];
+  if (!pending.length) return '';
+  return `Còn lại: ${pending.join(', ')}`;
+};
+
 const mapLocalPosts = () => getScheduledPosts().map((item) => ({
   ...item,
   source: 'local',
@@ -67,6 +75,7 @@ const mapLocalPosts = () => getScheduledPosts().map((item) => ({
     .filter(([, result]) => result?.success === false)
     .map(([platform, result]) => `${platform}: ${result.error || 'Lỗi không xác định'}`)
     .join(' · '),
+  pendingText: formatPendingPlatforms(item),
 }));
 
 const QueueMonitor = () => {
@@ -146,15 +155,16 @@ const QueueMonitor = () => {
     return () => clearInterval(timer);
   }, [refresh]);
 
-  const filteredJobs = filter === 'all' ? jobs : jobs.filter((job) => job.platform === filter);
+  const filteredJobs = filter === 'all' ? jobs : jobs.filter((job) => job.platform === filter || job.status === filter);
   const summary = jobs.reduce((acc, job) => {
     acc.total += 1;
     if (['sent', 'published', 'success'].includes(job.status)) acc.success += 1;
+    else if (job.status === 'dead_letter') acc.deadLetter += 1;
     else if (job.status === 'failed') acc.failed += 1;
     else if (['publishing', 'processing'].includes(job.status)) acc.processing += 1;
     else acc.pending += 1;
     return acc;
-  }, { total: 0, pending: 0, processing: 0, success: 0, failed: 0 });
+  }, { total: 0, pending: 0, processing: 0, success: 0, failed: 0, deadLetter: 0 });
 
   const processQueues = async () => {
     setActionId('process');
@@ -215,7 +225,8 @@ const QueueMonitor = () => {
 
   const cards = [
     ['Tổng tác vụ', summary.total], ['Đang chờ', summary.pending],
-    ['Đang xử lý', summary.processing], ['Thành công', summary.success], ['Thất bại', summary.failed],
+    ['Đang xử lý', summary.processing], ['Thành công', summary.success],
+    ['Thất bại', summary.failed], ['Dead Letter', summary.deadLetter],
   ];
 
   return (
@@ -244,7 +255,7 @@ const QueueMonitor = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
           {cards.map(([label, value]) => (
             <div key={label} className="rounded-xl border border-gray-700 bg-gray-800 p-4">
               <p className="text-sm text-gray-400">{label}</p><p className="mt-2 text-3xl font-bold">{value}</p>
@@ -258,6 +269,7 @@ const QueueMonitor = () => {
             ['social', 'Facebook / Instagram / TikTok'],
             ['zalo', 'Zalo OA'],
             ['linkedin', 'LinkedIn'],
+            ['dead_letter', 'Dead Letter'],
           ].map(([value, label]) => (
             <button type="button" key={value} onClick={() => setFilter(value)} aria-pressed={filter === value} className={`rounded-lg px-4 py-2 ${filter === value ? 'bg-purple-600' : 'bg-gray-800 hover:bg-gray-700'}`}>{label}</button>
           ))}
@@ -277,6 +289,8 @@ const QueueMonitor = () => {
                       <td className="max-w-xl p-4 text-gray-300">
                         <p className="line-clamp-3 whitespace-pre-wrap break-words">{job.content || 'Không có nội dung'}</p>
                         {job.campaignId && <p className="mt-1 text-xs text-purple-300">Campaign: {job.campaignId}</p>}
+                        {job.pendingText && <p className="mt-1 text-xs text-sky-300">{job.pendingText}</p>}
+                        {job.attemptCount > 0 && <p className="mt-1 text-xs text-gray-500">Số lần thử: {job.attemptCount}</p>}
                         {job.errorText && <p className="mt-1 text-xs text-red-300">{job.errorText}</p>}
                       </td>
                       <td className="p-4 text-sm text-gray-400">{formatDate(job.scheduledAt)}</td>
