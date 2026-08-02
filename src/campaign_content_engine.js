@@ -12,6 +12,7 @@ const PLATFORM_RULES = Object.freeze({
 
 const DOMAIN_HASHTAGS = Object.freeze({
   interior: ['noithat', 'tubep', 'khonggiansong', 'thietkenoithat'],
+  construction: ['cokhi', 'congsat', 'maiche', 'cokhidandung'],
   civil_mechanical: ['cokhi', 'congsat', 'maiche', 'cokhidandung'],
   general: ['giaiphap', 'chatluong', 'tuvan', 'uytin'],
 });
@@ -33,8 +34,10 @@ export function generateCampaignContent(workflow, options = {}) {
     throw new Error('Workflow không hợp lệ để tạo nội dung.');
   }
 
-  const domain = workflow.campaign.domain || 'general';
-  const baseHashtags = DOMAIN_HASHTAGS[domain] || DOMAIN_HASHTAGS.general;
+  const domainId = typeof workflow.campaign.domain === 'string'
+    ? workflow.campaign.domain
+    : workflow.campaign.domain?.id;
+  const baseHashtags = DOMAIN_HASHTAGS[domainId] || DOMAIN_HASHTAGS.general;
 
   const channels = workflow.channels.map((channel) => {
     const rules = PLATFORM_RULES[channel.platform] || PLATFORM_RULES.facebook;
