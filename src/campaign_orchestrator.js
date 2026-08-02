@@ -1,3 +1,4 @@
+import { generateCampaignContent } from './campaign_content_engine';
 import { createCampaignFromCommand, evaluateCampaignReadiness } from './campaign_pipeline';
 import { saveCampaignWorkflow } from './campaign_storage';
 
@@ -17,10 +18,10 @@ export const CAMPAIGN_RUN_STATUS = Object.freeze({
 const STEP_LABELS = Object.freeze({
   analyze: 'Phân tích câu lệnh',
   plan: 'Lập kế hoạch chiến dịch',
-  content: 'Chuẩn bị nội dung',
+  content: 'Tạo nội dung theo nền tảng',
   media: 'Chuẩn bị tác vụ ảnh/video',
   validate: 'Kiểm tra điều kiện',
-  persist: 'Lưu bản nháp',
+  persist: 'Lưu chiến dịch',
 });
 
 function createRunId() {
@@ -42,6 +43,10 @@ function updateStep(steps, id, patch) {
   return steps.map((step) => (step.id === id ? { ...step, ...patch } : step));
 }
 
+function countWords(value) {
+  return String(value || '').trim().split(/\s+/).filter(Boolean).length;
+}
+
 export function createCampaignRun(command, options = {}) {
   const normalizedCommand = String(command || '').trim();
   if (!normalizedCommand) throw new Error('Câu lệnh chiến dịch không được để trống.');
@@ -55,6 +60,7 @@ export function createCampaignRun(command, options = {}) {
     updatedAt: new Date().toISOString(),
     workflow: null,
     readiness: null,
+    metrics: {},
     error: null,
     steps: ['analyze', 'plan', 'content', 'media', 'validate', 'persist'].map(createStep),
   };
@@ -110,14 +116,18 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
     completeStep('plan');
 
     startStep('content', CAMPAIGN_RUN_STATUS.GENERATING_CONTENT);
+    const workflowWithContent = generateCampaignContent(run.workflow, options.contentOptions || {});
+    const contentWordCount = workflowWithContent.channels.reduce(
+      (total, channel) => total + countWords(channel.content?.text),
+      0,
+    );
     run = {
       ...run,
-      workflow: {
-        ...run.workflow,
-        channels: run.workflow.channels.map((channel) => ({
-          ...channel,
-          contentStatus: 'awaiting_generation',
-        })),
+      workflow: workflowWithContent,
+      metrics: {
+        ...run.metrics,
+        generatedContentCount: workflowWithContent.channels.length,
+        contentWordCount,
       },
     };
     completeStep('content');
@@ -127,14 +137,22 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
       (total, channel) => total + channel.jobs.length,
       0,
     );
-    run = { ...run, metrics: { mediaJobCount, channelCount: run.workflow.channels.length } };
+    run = {
+      ...run,
+      metrics: {
+        ...run.metrics,
+        mediaJobCount,
+        channelCount: run.workflow.channels.length,
+      },
+    };
     completeStep('media');
 
     startStep('validate', CAMPAIGN_RUN_STATUS.VALIDATING);
     const readiness = evaluateCampaignReadiness(run.workflow);
     run = { ...run, readiness };
-    if (readiness.errors.length) {
-      throw new Error(readiness.errors.join(' '));
+    if (readiness.errors.length) throw new Error(readiness.errors.join(' '));
+    if (run.workflow.channels.some((channel) => !channel.content?.text?.trim())) {
+      throw new Error('Có kênh chưa tạo được nội dung.');
     }
     completeStep('validate');
 
@@ -146,6 +164,7 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
         runId: run.runId,
         mode: run.mode,
         readiness,
+        metrics: run.metrics,
       },
     });
     run = { ...run, workflow: savedWorkflow };
