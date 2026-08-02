@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OneClickCampaignInput",
+  "type": "object",
+  "required": ["command"],
+  "additionalProperties": false,
+  "properties": {
+    "command": { "type": "string", "minLength": 3, "maxLength": 2000 },
+    "publishAt": { "type": ["string", "null"], "format": "date-time" },
+    "mode": { "type": "string", "enum": ["review", "automatic"], "default": "review" },
+    "platforms": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "enum": ["facebook", "instagram", "tiktok", "youtube", "pinterest", "linkedin", "zalo"] }
+    },
+    "mediaTypes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "enum": ["image", "video"] }
+    },
+    "timezone": { "type": "string", "default": "Asia/Ho_Chi_Minh" }
+  }
+}
