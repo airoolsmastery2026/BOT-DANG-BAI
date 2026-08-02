@@ -82,7 +82,7 @@ export const getScheduledPosts = () => {
 
 const persist = (posts) => saveToLocalStorage(STORAGE_KEY, posts);
 
-export const schedulePost = (post) => {
+const prepareScheduledPost = (post, existingPosts = [], batchKeys = new Set()) => {
   const content = String(post?.content || '').trim();
   const platforms = normalizePlatforms(post?.platforms);
   const scheduledDate = new Date(post?.scheduledTime);
@@ -94,14 +94,17 @@ export const schedulePost = (post) => {
   const scheduledTime = scheduledDate.toISOString();
   const campaignId = post.campaignId ? String(post.campaignId).trim() : null;
   const idempotencyKey = buildIdempotencyKey({ campaignId, platforms, scheduledTime, content });
-  const posts = getScheduledPosts();
 
-  if (idempotencyKey && posts.some((item) => item.idempotencyKey === idempotencyKey)) {
+  if (idempotencyKey && (
+    existingPosts.some((item) => item.idempotencyKey === idempotencyKey)
+    || batchKeys.has(idempotencyKey)
+  )) {
     throw new Error('Chiến dịch này đã có một bài giống hệt trong hàng đợi.');
   }
 
+  if (idempotencyKey) batchKeys.add(idempotencyKey);
   const now = new Date().toISOString();
-  const newPost = {
+  return {
     id: createPostId(),
     campaignId,
     idempotencyKey,
@@ -118,10 +121,22 @@ export const schedulePost = (post) => {
     results: {},
     attemptCount: 0,
   };
-
-  persist([...posts, newPost]);
-  return newPost;
 };
+
+export const schedulePosts = (entries) => {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new Error('Danh sách bài cần lên lịch không được để trống.');
+  }
+  if (entries.length > 1000) throw new Error('Mỗi lần chỉ được xếp tối đa 1000 bài.');
+
+  const existingPosts = getScheduledPosts();
+  const batchKeys = new Set();
+  const prepared = entries.map((entry) => prepareScheduledPost(entry, existingPosts, batchKeys));
+  persist([...existingPosts, ...prepared]);
+  return prepared;
+};
+
+export const schedulePost = (post) => schedulePosts([post])[0];
 
 export const cancelPost = (postId) => {
   const normalizedId = String(postId || '');
