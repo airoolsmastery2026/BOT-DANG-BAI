@@ -8,10 +8,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,13 +29,17 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Check backend syntax
+      - name: Check active server syntax
         run: |
           node --check server/zalo-server.js
           node --check server/linkedin-server.js
-          node --check server/real-estate-server.js
 
-      - name: Build frontend
-        run: npm run build
+      - name: Run unit tests
         env:
           CI: true
+        run: npm test -- --runInBand
+
+      - name: Build frontend
+        env:
+          CI: true
+        run: npm run build
