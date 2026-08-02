@@ -2,7 +2,10 @@ import {
   POST_STATUS,
   RECURRENCE,
   cancelPost,
+  getQueueSummary,
   getScheduledPosts,
+  recoverStuckPosts,
+  retryFailedPosts,
   retryPost,
   schedulePost,
   schedulePosts,
@@ -110,6 +113,47 @@ describe('post manager queue', () => {
     expect(retried.status).toBe(POST_STATUS.SCHEDULED);
     expect(retried.results).toEqual({});
     expect(retried.failureCount).toBeUndefined();
+  });
+
+  test('retries failed posts by campaign with a limit', () => {
+    const first = schedulePost(validPost({ content: 'Bài 1' }));
+    const second = schedulePost(validPost({ content: 'Bài 2', campaignId: 'campaign-2' }));
+    const third = schedulePost(validPost({ content: 'Bài 3', scheduledTime: new Date(Date.now() + 120_000).toISOString() }));
+    utils.__setStorage('scheduled_posts', [first, second, third].map((post) => ({ ...post, status: POST_STATUS.FAILED })));
+
+    expect(retryFailedPosts({ campaignId: 'campaign-1', limit: 1 })).toBe(1);
+    const posts = getScheduledPosts();
+    expect(posts.filter((post) => post.status === POST_STATUS.SCHEDULED)).toHaveLength(1);
+    expect(posts.find((post) => post.campaignId === 'campaign-2').status).toBe(POST_STATUS.FAILED);
+  });
+
+  test('recovers stale publishing posts as failed', () => {
+    const scheduled = schedulePost(validPost());
+    const now = Date.now();
+    utils.__setStorage('scheduled_posts', [{
+      ...scheduled,
+      status: POST_STATUS.PUBLISHING,
+      updatedAt: new Date(now - 15 * 60_000).toISOString(),
+    }]);
+
+    expect(recoverStuckPosts({ now, timeoutMs: 10 * 60_000 })).toBe(1);
+    const recovered = getScheduledPosts()[0];
+    expect(recovered.status).toBe(POST_STATUS.FAILED);
+    expect(recovered.results.system.success).toBe(false);
+  });
+
+  test('returns queue summary and unique campaign count', () => {
+    const due = schedulePost(validPost({ scheduledTime: new Date(Date.now() - 60_000).toISOString() }));
+    const future = schedulePost(validPost({ content: 'Tương lai', campaignId: 'campaign-2' }));
+    utils.__setStorage('scheduled_posts', [due, { ...future, status: POST_STATUS.FAILED }]);
+
+    expect(getQueueSummary()).toMatchObject({
+      total: 2,
+      scheduled: 1,
+      failed: 1,
+      due: 1,
+      campaigns: 2,
+    });
   });
 
   test('filters malformed persisted records', () => {
