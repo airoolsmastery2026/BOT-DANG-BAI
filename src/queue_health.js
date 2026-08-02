@@ -1,4 +1,4 @@
-import { POST_STATUS, getScheduledPosts } from './post_manager';
+import { MAX_PUBLISH_ATTEMPTS, POST_STATUS, getScheduledPosts } from './post_manager';
 
 const REQUIRED_TOKEN = {
   facebook: 'facebook_token',
@@ -61,6 +61,15 @@ export const inspectQueueHealth = ({
         issues.push(issue('overdue', 'warning', 'Tác vụ đã quá thời gian dự kiến nhưng chưa được xử lý.', post));
       }
 
+      if (Number(post.attemptCount || 0) >= MAX_PUBLISH_ATTEMPTS) {
+        issues.push(issue(
+          'scheduled_exhausted_attempts',
+          'error',
+          'Tác vụ đang chờ nhưng đã hết số lần thử; cần chuyển vào Dead Letter thay vì tiếp tục đăng.',
+          post,
+        ));
+      }
+
       if (resultSummary.success.length > 0) {
         issues.push(issue(
           'scheduled_with_successful_results',
@@ -92,9 +101,36 @@ export const inspectQueueHealth = ({
       issues.push(issue('stuck_publishing', 'error', 'Tác vụ đang đăng đã vượt quá thời gian cho phép.', post));
     }
 
+    if (post.status === POST_STATUS.DEAD_LETTER) {
+      issues.push(issue(
+        'dead_letter_item',
+        'warning',
+        'Tác vụ đã nằm trong Dead Letter Queue và cần xử lý thủ công hoặc tạo chiến dịch thay thế.',
+        post,
+      ));
+
+      if (!post.deadLetteredAt) {
+        issues.push(issue(
+          'dead_letter_missing_timestamp',
+          'warning',
+          'Tác vụ Dead Letter thiếu thời điểm deadLetteredAt để audit.',
+          post,
+        ));
+      }
+    }
+
     if (post.status === POST_STATUS.FAILED) {
       if (Number(post.attemptCount || 0) >= 3) {
         issues.push(issue('repeated_failure', 'warning', 'Tác vụ đã thất bại từ 3 lần trở lên.', post));
+      }
+
+      if (Number(post.attemptCount || 0) >= MAX_PUBLISH_ATTEMPTS) {
+        issues.push(issue(
+          'failed_exhausted_attempts',
+          'error',
+          'Tác vụ thất bại đã hết số lần thử nhưng chưa được chuyển vào Dead Letter Queue.',
+          post,
+        ));
       }
 
       if (resultSummary.success.length > 0 && resultSummary.failed.length > 0) {
