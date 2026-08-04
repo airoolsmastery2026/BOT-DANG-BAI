@@ -3,6 +3,7 @@ import {
   Activity,
   Bell,
   BriefcaseBusiness,
+  CalendarRange,
   Files,
   KeyRound,
   ListChecks,
@@ -20,6 +21,7 @@ import NotificationCenter from './NotificationCenter';
 import CampaignStudio from './CampaignStudio';
 import CampaignDrafts from './CampaignDrafts';
 import PlatformConnections from './PlatformConnections';
+import ContentOperations from './ContentOperations';
 import { getConnectedPlatforms, loadPlatformCredentials } from './platform_credentials';
 
 const TAB_STORAGE_KEY = 'bot_dang_bai_active_tab';
@@ -27,6 +29,7 @@ const TAB_STORAGE_KEY = 'bot_dang_bai_active_tab';
 const tabs = [
   { id: 'dashboard', label: 'Tổng quan', icon: Activity },
   { id: 'studio', label: 'AI Studio', icon: Sparkles },
+  { id: 'planning', label: 'Kế hoạch', icon: CalendarRange },
   { id: 'drafts', label: 'Bản nháp', icon: Files },
   { id: 'scheduler', label: 'Đăng bài', icon: Send },
   { id: 'queue', label: 'Hàng đợi', icon: ListChecks },
@@ -125,6 +128,7 @@ const App = () => {
       <main id="main-content" tabIndex="-1">
         {activeTab === 'dashboard' && <SystemDashboard onNavigate={setActiveTab} />}
         {activeTab === 'studio' && <CampaignStudio />}
+        {activeTab === 'planning' && <ContentOperations onNavigate={setActiveTab} />}
         {activeTab === 'drafts' && <CampaignDrafts onNavigate={setActiveTab} />}
         {activeTab === 'queue' && (
           <>
