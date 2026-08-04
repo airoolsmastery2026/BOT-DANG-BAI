@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   Bell,
+  Bot,
   BriefcaseBusiness,
   CalendarRange,
   Files,
@@ -22,12 +23,14 @@ import CampaignStudio from './CampaignStudio';
 import CampaignDrafts from './CampaignDrafts';
 import PlatformConnections from './PlatformConnections';
 import ContentOperations from './ContentOperations';
+import AIOrchestration from './AIOrchestration';
 import { getConnectedPlatforms, loadPlatformCredentials } from './platform_credentials';
 
 const TAB_STORAGE_KEY = 'bot_dang_bai_active_tab';
 
 const tabs = [
   { id: 'dashboard', label: 'Tổng quan', icon: Activity },
+  { id: 'orchestration', label: 'AI Điều phối', icon: Bot },
   { id: 'studio', label: 'AI Studio', icon: Sparkles },
   { id: 'planning', label: 'Kế hoạch', icon: CalendarRange },
   { id: 'drafts', label: 'Bản nháp', icon: Files },
@@ -69,9 +72,7 @@ const App = () => {
     try {
       localStorage.setItem(TAB_STORAGE_KEY, activeTab);
       const nextHash = `#/${activeTab}`;
-      if (window.location.hash !== nextHash) {
-        window.history.replaceState(null, '', nextHash);
-      }
+      if (window.location.hash !== nextHash) window.history.replaceState(null, '', nextHash);
     } catch {
       // Điều hướng vẫn hoạt động trong phiên hiện tại nếu trình duyệt chặn lưu trữ.
     }
@@ -90,65 +91,64 @@ const App = () => {
   const activeTabLabel = tabs.find((tab) => tab.id === activeTab)?.label || 'Tổng quan';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-slate-900 focus:shadow-lg"
-      >
+    <div className="dhp-app min-h-screen">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-slate-900 focus:shadow-lg">
         Bỏ qua điều hướng
       </a>
 
-      <header className="mx-auto max-w-7xl px-4 pt-4 md:px-8">
-        <div className="mb-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-purple-300">Marketing Distribution Engine</p>
-          <h1 className="mt-1 text-2xl font-bold text-white">BOT ĐĂNG BÀI</h1>
-          <p className="mt-1 text-sm text-gray-400" aria-live="polite">Đang mở: {activeTabLabel}</p>
-        </div>
+      <header className="dhp-header sticky top-0 z-40 border-b border-amber-400/10 backdrop-blur-xl">
+        <div className="mx-auto max-w-7xl px-4 py-4 md:px-8">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <p className="dhp-eyebrow">Đại Hải Phát · Social Content AI</p>
+              <div className="mt-1 flex items-center gap-3">
+                <div className="dhp-logo-mark">DHP</div>
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight text-white md:text-2xl">BOT ĐĂNG BÀI</h1>
+                  <p className="mt-0.5 text-xs text-slate-400" aria-live="polite">Đang mở: {activeTabLabel}</p>
+                </div>
+              </div>
+            </div>
 
-        <nav className="flex gap-2 overflow-x-auto pb-2" aria-label="Điều hướng chính">
-          {tabs.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setActiveTab(id)}
-              aria-current={activeTab === id ? 'page' : undefined}
-              aria-controls="main-content"
-              className={`flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 ${
-                activeTab === id
-                  ? 'bg-gray-800 text-white ring-1 ring-purple-500/60'
-                  : 'bg-gray-900/50 text-gray-300 hover:bg-gray-800 hover:text-white'
-              }`}
-            >
-              <Icon className="h-4 w-4" aria-hidden="true" /> {label}
-            </button>
-          ))}
-        </nav>
+            <nav className="flex max-w-full gap-2 overflow-x-auto pb-1" aria-label="Điều hướng chính">
+              {tabs.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveTab(id)}
+                  aria-current={activeTab === id ? 'page' : undefined}
+                  aria-controls="main-content"
+                  className={`dhp-nav-item flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 ${activeTab === id ? 'dhp-nav-active' : ''}`}
+                >
+                  <Icon className="h-4 w-4" aria-hidden="true" /> {label}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </div>
       </header>
 
       <main id="main-content" tabIndex="-1">
         {activeTab === 'dashboard' && <SystemDashboard onNavigate={setActiveTab} />}
+        {activeTab === 'orchestration' && <AIOrchestration />}
         {activeTab === 'studio' && <CampaignStudio />}
         {activeTab === 'planning' && <ContentOperations onNavigate={setActiveTab} />}
         {activeTab === 'drafts' && <CampaignDrafts onNavigate={setActiveTab} />}
         {activeTab === 'queue' && (
           <>
-            <QueueRuntimeControls
-              apiCredentials={apiCredentials}
-              onQueueChanged={() => setQueueRefreshKey((value) => value + 1)}
-            />
+            <QueueRuntimeControls apiCredentials={apiCredentials} onQueueChanged={() => setQueueRefreshKey((value) => value + 1)} />
             <QueueMonitor key={queueRefreshKey} apiCredentials={apiCredentials} />
           </>
         )}
-        {activeTab === 'connections' && (
-          <PlatformConnections credentials={apiCredentials} onChange={setApiCredentials} />
-        )}
+        {activeTab === 'connections' && <PlatformConnections credentials={apiCredentials} onChange={setApiCredentials} />}
         {activeTab === 'notifications' && <NotificationCenter />}
 
         {activeTab === 'scheduler' && (
-          <div className="p-4 text-white md:p-8">
+          <div className="dhp-page p-4 text-white md:p-8">
             <div className="mx-auto max-w-7xl">
-              <h2 className="mb-2 text-3xl font-bold md:text-4xl">Đăng bài tự động</h2>
-              <p className="mb-8 text-gray-300">Soạn nội dung, gắn liên kết về website, lên lịch và phân phối lên các nền tảng đã kết nối.</p>
+              <p className="dhp-eyebrow">Publishing workspace</p>
+              <h2 className="mb-2 mt-2 text-3xl font-bold tracking-tight md:text-4xl">Đăng bài tự động</h2>
+              <p className="mb-8 text-slate-400">Soạn nội dung, gắn liên kết về website, lên lịch và phân phối lên các nền tảng đã kết nối.</p>
               <PostScheduler connectedPlatforms={connectedPlatforms} apiCredentials={apiCredentials} />
             </div>
           </div>
