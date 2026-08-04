@@ -1,8 +1,174 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --dhp-navy-950: #07111f;
+  --dhp-navy-900: #0b1728;
+  --dhp-navy-800: #10243b;
+  --dhp-navy-700: #18324f;
+  --dhp-gold-500: #d6a84f;
+  --dhp-gold-400: #e4bd69;
+  --dhp-cream: #f6f1e8;
+  --dhp-text: #e7edf5;
+  --dhp-muted: #94a3b8;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--dhp-navy-950);
+  color: var(--dhp-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea,
+select { font: inherit; }
+
+::selection {
+  background: rgba(214, 168, 79, 0.3);
+  color: #fff;
+}
+
+.dhp-app {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(214, 168, 79, 0.08), transparent 28rem),
+    linear-gradient(180deg, var(--dhp-navy-900), var(--dhp-navy-950) 34rem);
+}
+
+.dhp-header { background: rgba(7, 17, 31, 0.9); }
+.dhp-page { min-height: calc(100vh - 96px); }
+
+.dhp-eyebrow {
+  margin: 0;
+  color: var(--dhp-gold-400);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.dhp-logo-mark {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border: 1px solid rgba(228, 189, 105, 0.45);
+  border-radius: 0.85rem;
+  background: linear-gradient(145deg, rgba(228, 189, 105, 0.18), rgba(214, 168, 79, 0.05));
+  color: var(--dhp-gold-400);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+.dhp-nav-item {
+  border: 1px solid transparent;
+  color: #aebdd0;
+  background: transparent;
+}
+
+.dhp-nav-item:hover {
+  border-color: rgba(228, 189, 105, 0.15);
+  background: rgba(255,255,255,0.035);
+  color: #fff;
+}
+
+.dhp-nav-active {
+  border-color: rgba(228, 189, 105, 0.35);
+  background: rgba(214, 168, 79, 0.12);
+  color: var(--dhp-gold-400);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+.dhp-hero {
+  background:
+    linear-gradient(115deg, rgba(214, 168, 79, 0.12), transparent 42%),
+    linear-gradient(145deg, #10243b, #091525);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.22);
+}
+
+.dhp-panel {
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(16, 36, 59, 0.62);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.035), 0 18px 50px rgba(0,0,0,0.15);
+  backdrop-filter: blur(14px);
+}
+
+.dhp-stage-active {
+  border: 1px solid rgba(228, 189, 105, 0.24);
+  background: rgba(214, 168, 79, 0.11);
+  color: var(--dhp-gold-400);
+}
+
+.dhp-stat {
+  display: flex;
+  min-width: 5.8rem;
+  flex-direction: column;
+  gap: 0.25rem;
+  border: 1px solid rgba(228, 189, 105, 0.18);
+  border-radius: 1rem;
+  background: rgba(7,17,31,0.45);
+  padding: 0.9rem 0.7rem;
+}
+
+.dhp-stat strong { color: var(--dhp-gold-400); font-size: 1.15rem; }
+.dhp-stat span { color: #94a3b8; font-size: 0.65rem; }
+
+/* Đồng bộ các component cũ sang bảng màu navy–gold mà không phải viết lại toàn bộ. */
+.bg-gradient-to-br.from-slate-900,
+.bg-gradient-to-br.from-gray-800,
+.bg-gray-900,
+.bg-gray-800 { background-color: rgba(16, 36, 59, 0.78) !important; }
+
+.bg-gray-700 { background-color: rgba(24, 50, 79, 0.9) !important; }
+.border-gray-700,
+.border-gray-600 { border-color: rgba(148, 163, 184, 0.16) !important; }
+
+.bg-purple-600,
+.bg-indigo-600,
+.bg-blue-600 {
+  background-color: #b88935 !important;
+  color: #07111f !important;
+}
+
+.hover\:bg-purple-700:hover,
+.hover\:bg-indigo-700:hover,
+.hover\:bg-blue-700:hover { background-color: #d6a84f !important; }
+
+.text-purple-300,
+.text-purple-400,
+.text-blue-300 { color: var(--dhp-gold-400) !important; }
+
+.border-purple-500,
+.border-purple-700,
+.ring-purple-500\/60 { border-color: rgba(228, 189, 105, 0.38) !important; }
+
+input,
+textarea,
+select {
+  border-radius: 0.75rem !important;
+  color: #e7edf5;
+  outline: none;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: rgba(228, 189, 105, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(214, 168, 79, 0.1);
+}
+
+@media (max-width: 640px) {
+  .dhp-stat { min-width: 0; }
 }
