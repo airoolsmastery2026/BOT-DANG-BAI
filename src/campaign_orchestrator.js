@@ -168,7 +168,7 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
     completeStep('validate');
 
     startStep('persist', CAMPAIGN_RUN_STATUS.VALIDATING);
-    const savedWorkflow = saveCampaignWorkflow({
+    const workflowToSave = {
       ...run.workflow,
       workflowStatus: run.mode === 'automatic' && readiness.ready ? 'approved' : 'draft',
       orchestrator: {
@@ -177,8 +177,11 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
         readiness,
         metrics: run.metrics,
       },
-    });
-    run = { ...run, workflow: savedWorkflow };
+    };
+    // Some storage adapters/mocks may persist successfully without returning the saved value.
+    // Preserve the fully prepared workflow rather than replacing it with undefined.
+    const persistedWorkflow = saveCampaignWorkflow(workflowToSave);
+    run = { ...run, workflow: persistedWorkflow || workflowToSave };
     completeStep('persist');
 
     run = {
