@@ -1,4 +1,5 @@
 import { POST_STATUS, getPendingPlatforms, getScheduledPosts } from './post_manager';
+import { PUBLISH_MODE, getPublishMode } from './publisher_adapter';
 
 const TOKEN_KEY = {
   facebook: 'facebook_token',
@@ -17,6 +18,7 @@ const createIssue = (post, platform, code, message) => ({
 export const validatePostForPublishing = (post, credentials = {}) => {
   const issues = [];
   const pendingPlatforms = getPendingPlatforms(post);
+  const mockMode = getPublishMode(credentials) === PUBLISH_MODE.MOCK;
 
   if (!post || typeof post !== 'object') {
     return { ready: false, pendingPlatforms: [], issues: [{ code: 'invalid_post', message: 'Tác vụ không hợp lệ.' }] };
@@ -36,20 +38,20 @@ export const validatePostForPublishing = (post, credentials = {}) => {
 
   pendingPlatforms.forEach((platform) => {
     const tokenKey = TOKEN_KEY[platform];
-    if (!tokenKey || !String(credentials[tokenKey] || '').trim()) {
+    if (!mockMode && (!tokenKey || !String(credentials[tokenKey] || '').trim())) {
       issues.push(createIssue(post, platform, 'missing_token', `Thiếu token ${platform}.`));
     }
 
-    if (platform === 'instagram' && !String(post.imageUrl || '').trim()) {
+    if (!mockMode && platform === 'instagram' && !String(post.imageUrl || '').trim()) {
       issues.push(createIssue(post, platform, 'missing_image', 'Instagram yêu cầu URL ảnh công khai.'));
     }
 
-    if (platform === 'tiktok' && !String(post.videoUrl || '').trim()) {
+    if (!mockMode && platform === 'tiktok' && !String(post.videoUrl || '').trim()) {
       issues.push(createIssue(post, platform, 'missing_video', 'TikTok yêu cầu URL video công khai.'));
     }
 
     const targetId = post.targetIds?.[platform];
-    if (platform !== 'tiktok' && targetId !== undefined && !String(targetId || '').trim()) {
+    if (!mockMode && platform !== 'tiktok' && targetId !== undefined && !String(targetId || '').trim()) {
       issues.push(createIssue(post, platform, 'invalid_target', `Target ID ${platform} không hợp lệ.`));
     }
   });
@@ -58,6 +60,7 @@ export const validatePostForPublishing = (post, credentials = {}) => {
     ready: issues.length === 0,
     pendingPlatforms,
     issues,
+    mode: mockMode ? PUBLISH_MODE.MOCK : PUBLISH_MODE.LIVE,
   };
 };
 
@@ -80,6 +83,7 @@ export const inspectPublisherPreflight = ({
   const blocked = results.filter((result) => !result.ready);
 
   return {
+    mode: getPublishMode(credentials),
     dueCount: duePosts.length,
     runnableCount: runnable.length,
     blockedCount: blocked.length,
