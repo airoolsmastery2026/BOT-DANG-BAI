@@ -109,6 +109,35 @@ describe('post manager queue', () => {
     expect(processed[0].status).toBe(POST_STATUS.PUBLISHED);
   });
 
+  test('free mock partial failure preserves successes for selective retry', async () => {
+    const scheduled = schedulePost(validPost({
+      platforms: ['facebook', 'instagram'],
+      scheduledTime: new Date(Date.now() - 60_000).toISOString(),
+    }));
+
+    const firstRun = await checkAndPublishDuePosts({
+      __publisherMode: 'mock',
+      __mockScenario: 'partial_instagram',
+    });
+
+    expect(firstRun[0].status).toBe(POST_STATUS.FAILED);
+    expect(firstRun[0].results.facebook.success).toBe(true);
+    expect(firstRun[0].results.instagram.success).toBe(false);
+    expect(firstRun[0].pendingPlatforms).toEqual(['instagram']);
+
+    const retried = retryPost(scheduled.id);
+    expect(retried.pendingPlatforms).toEqual(['instagram']);
+
+    const secondRun = await checkAndPublishDuePosts({
+      __publisherMode: 'mock',
+      __mockScenario: 'success',
+    });
+
+    expect(secondRun[0].status).toBe(POST_STATUS.PUBLISHED);
+    expect(secondRun[0].results.facebook.success).toBe(true);
+    expect(secondRun[0].results.instagram.success).toBe(true);
+  });
+
   test('moves exhausted failed posts to dead letter instead of retrying forever', () => {
     const scheduled = schedulePost(validPost());
     utils.__setStorage('scheduled_posts', [{
