@@ -60,7 +60,13 @@ export function normalizeSchedulerHandoff(value) {
     durationDays: Number(value.workflow?.campaign?.durationDays || value.workflow?.schedulePlan?.durationDays || 1),
     postsPerDay: Number(value.workflow?.campaign?.postsPerDay || value.workflow?.schedulePlan?.postsPerDay || 1),
     hasImageJob: jobs.some((job) => job.type === 'image'),
-    hasVideoJob: jobs.some((job) => job.type === 'video'),
+    hasVideoJob: Boolean(value.videoUrl) || jobs.some((job) => job.type === 'video'),
+    content: String(value.content || ''),
+    videoUrl: String(value.videoUrl || ''),
+    source: String(value.source || ''),
+    sourceJobId: String(value.sourceJobId || ''),
+    sourceAccessToken: String(value.sourceAccessToken || ''),
+    sourceCallbackUrl: String(value.sourceCallbackUrl || ''),
     handedOffAt: value.handedOffAt || value.createdAt || null,
   };
 }
