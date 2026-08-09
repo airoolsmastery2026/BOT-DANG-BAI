@@ -54,8 +54,8 @@ export function detectPlatforms(command) {
 export function detectMediaTypes(command) {
   const normalized = normalizeText(command);
   const mediaTypes = [];
-  if (/\b(ảnh|hình|image|thumbnail)\b/.test(normalized)) mediaTypes.push('image');
-  if (/\b(video|reel|short|storyboard|kịch bản)\b/.test(normalized)) mediaTypes.push('video');
+  if (/(ảnh|hình|image|thumbnail)/.test(normalized)) mediaTypes.push('image');
+  if (/(video|reel|short|storyboard|kịch bản)/.test(normalized)) mediaTypes.push('video');
   return mediaTypes.length ? mediaTypes : ['image'];
 }
 
