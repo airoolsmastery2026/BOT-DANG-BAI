@@ -98,6 +98,8 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
 
     setCampaignContext(handoff);
     setTopic(handoff.topic);
+    setContent(handoff.content || '');
+    setVideoUrl(handoff.videoUrl || '');
     setPlatforms(handoff.platforms.filter((platform) => connectedPlatforms[platform]));
     if (handoff.publishAt) setScheduledTime(toDatetimeLocal(handoff.publishAt));
     clearSchedulerHandoff();
