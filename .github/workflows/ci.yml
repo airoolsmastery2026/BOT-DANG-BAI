@@ -34,6 +34,7 @@ jobs:
           node --check server/zalo-server.js
           node --check server/linkedin-server.js
           node --check server/dhp-social-lead-bridge.js
+          node --check server/dhp-media-ingress.js
           node --check api/dhp/social-lead.js
 
       - name: Run bridge unit tests
