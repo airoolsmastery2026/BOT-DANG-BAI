@@ -6,6 +6,7 @@ import {
   BriefcaseBusiness,
   CalendarRange,
   Files,
+  Inbox,
   KeyRound,
   ListChecks,
   MessageCircle,
@@ -24,6 +25,7 @@ import CampaignDrafts from './CampaignDrafts';
 import PlatformConnections from './PlatformConnections';
 import ContentOperations from './ContentOperations';
 import AIOrchestration from './AIOrchestration';
+import DhpMediaInbox from './DhpMediaInbox';
 import { getConnectedPlatforms, loadPlatformCredentials } from './platform_credentials';
 
 const TAB_STORAGE_KEY = 'bot_dang_bai_active_tab';
@@ -34,6 +36,7 @@ const tabs = [
   { id: 'studio', label: 'AI Studio', icon: Sparkles },
   { id: 'planning', label: 'Kế hoạch', icon: CalendarRange },
   { id: 'drafts', label: 'Bản nháp', icon: Files },
+  { id: 'media-inbox', label: 'DHP Inbox', icon: Inbox },
   { id: 'scheduler', label: 'Đăng bài', icon: Send },
   { id: 'queue', label: 'Hàng đợi', icon: ListChecks },
   { id: 'connections', label: 'Kết nối', icon: KeyRound },
@@ -134,6 +137,12 @@ const App = () => {
         {activeTab === 'studio' && <CampaignStudio />}
         {activeTab === 'planning' && <ContentOperations onNavigate={setActiveTab} />}
         {activeTab === 'drafts' && <CampaignDrafts onNavigate={setActiveTab} />}
+        {activeTab === 'media-inbox' && (
+          <DhpMediaInbox
+            connectedPlatforms={connectedPlatforms}
+            onQueueChanged={() => setQueueRefreshKey((value) => value + 1)}
+          />
+        )}
         {activeTab === 'queue' && (
           <>
             <QueueRuntimeControls apiCredentials={apiCredentials} onQueueChanged={() => setQueueRefreshKey((value) => value + 1)} />
