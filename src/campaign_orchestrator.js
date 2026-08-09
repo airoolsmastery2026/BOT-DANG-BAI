@@ -168,7 +168,7 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
     completeStep('validate');
 
     startStep('persist', CAMPAIGN_RUN_STATUS.VALIDATING);
-    const savedWorkflow = saveCampaignWorkflow({
+    const workflowToSave = {
       ...run.workflow,
       workflowStatus: run.mode === 'automatic' && readiness.ready ? 'approved' : 'draft',
       orchestrator: {
@@ -177,7 +177,8 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
         readiness,
         metrics: run.metrics,
       },
-    });
+    };
+    const savedWorkflow = saveCampaignWorkflow(workflowToSave) || workflowToSave;
     run = { ...run, workflow: savedWorkflow };
     completeStep('persist');
 
