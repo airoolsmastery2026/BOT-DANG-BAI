@@ -5,11 +5,26 @@ export const PUBLISH_MODE = {
   LIVE: 'live',
 };
 
+export const MOCK_SCENARIO = {
+  SUCCESS: 'success',
+  RATE_LIMIT: 'rate_limit',
+  NETWORK_TIMEOUT: 'network_timeout',
+  PARTIAL_INSTAGRAM: 'partial_instagram',
+  PARTIAL_TIKTOK: 'partial_tiktok',
+};
+
 const normalizeMode = (value) => (
   String(value || '').trim().toLowerCase() === PUBLISH_MODE.MOCK
     ? PUBLISH_MODE.MOCK
     : PUBLISH_MODE.LIVE
 );
+
+const normalizeScenario = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return Object.values(MOCK_SCENARIO).includes(normalized)
+    ? normalized
+    : MOCK_SCENARIO.SUCCESS;
+};
 
 export const getPublishMode = (credentials = {}) => normalizeMode(
   credentials.__publisherMode
@@ -17,13 +32,51 @@ export const getPublishMode = (credentials = {}) => normalizeMode(
     || PUBLISH_MODE.LIVE,
 );
 
-const mockResult = (platform, post) => ({
-  success: true,
+export const getMockScenario = (credentials = {}) => normalizeScenario(
+  credentials.__mockScenario || MOCK_SCENARIO.SUCCESS,
+);
+
+const mockFailure = (platform, post, scenario, error, errorCode, retryable = true) => ({
+  success: false,
   mock: true,
   platform,
-  externalPostId: `mock_${platform}_${post.id || Date.now()}`,
-  publishedAt: new Date().toISOString(),
+  scenario,
+  error,
+  errorCode,
+  retryable,
+  externalPostId: null,
+  attemptedAt: new Date().toISOString(),
+  postId: post.id || null,
 });
+
+const mockResult = (platform, post, credentials) => {
+  const scenario = getMockScenario(credentials);
+
+  if (scenario === MOCK_SCENARIO.RATE_LIMIT) {
+    return mockFailure(platform, post, scenario, 'Mock API rate limit (429).', 'MOCK_429', true);
+  }
+
+  if (scenario === MOCK_SCENARIO.NETWORK_TIMEOUT) {
+    return mockFailure(platform, post, scenario, 'Mock network timeout.', 'MOCK_TIMEOUT', true);
+  }
+
+  if (scenario === MOCK_SCENARIO.PARTIAL_INSTAGRAM && platform === 'instagram') {
+    return mockFailure(platform, post, scenario, 'Mock Instagram publish failure.', 'MOCK_INSTAGRAM_FAILED', true);
+  }
+
+  if (scenario === MOCK_SCENARIO.PARTIAL_TIKTOK && platform === 'tiktok') {
+    return mockFailure(platform, post, scenario, 'Mock TikTok publish failure.', 'MOCK_TIKTOK_FAILED', true);
+  }
+
+  return {
+    success: true,
+    mock: true,
+    platform,
+    scenario,
+    externalPostId: `mock_${platform}_${post.id || Date.now()}`,
+    publishedAt: new Date().toISOString(),
+  };
+};
 
 const livePublish = async (platform, post, credentials) => {
   if (platform === 'facebook') {
@@ -59,6 +112,6 @@ const livePublish = async (platform, post, credentials) => {
 
 export const publishThroughAdapter = async ({ platform, post, credentials = {} }) => {
   const mode = getPublishMode(credentials);
-  if (mode === PUBLISH_MODE.MOCK) return mockResult(platform, post);
+  if (mode === PUBLISH_MODE.MOCK) return mockResult(platform, post, credentials);
   return livePublish(platform, post, credentials);
 };
