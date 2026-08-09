@@ -1,7 +1,7 @@
 /**
  * Browser-side post queue runtime.
  */
-import { FacebookAPI, InstagramAPI, TikTokAPI } from './api_handler';
+import { publishThroughAdapter } from './publisher_adapter';
 import { saveToLocalStorage, getFromLocalStorage } from './utils';
 
 const STORAGE_KEY = 'scheduled_posts';
@@ -197,22 +197,10 @@ const publishToPlatforms = async (post, credentials = {}, platforms = post.platf
   const results = {};
   for (const platform of normalizePlatforms(platforms)) {
     try {
-      if (platform === 'facebook') {
-        if (!credentials.facebook_token) throw new Error('Thiếu Facebook access token.');
-        const api = new FacebookAPI(credentials.facebook_token);
-        results.facebook = normalizePublishResult(await api.publishPost(post.targetIds.facebook || 'me', post.content, { imageUrl: post.imageUrl || undefined }));
-      } else if (platform === 'instagram') {
-        if (!credentials.instagram_token) throw new Error('Thiếu Instagram access token.');
-        if (!post.imageUrl) throw new Error('Instagram yêu cầu URL ảnh.');
-        const api = new InstagramAPI(credentials.instagram_token);
-        results.instagram = normalizePublishResult(await api.publishPost(post.targetIds.instagram || 'me', post.imageUrl, post.content));
-      } else if (platform === 'tiktok') {
-        if (!credentials.tiktok_token) throw new Error('Thiếu TikTok access token.');
-        if (!post.videoUrl) throw new Error('TikTok yêu cầu URL video.');
-        const api = new TikTokAPI(credentials.tiktok_token);
-        results.tiktok = normalizePublishResult(await api.publishVideo(post.videoUrl, post.content));
-      }
-    } catch (error) { results[platform] = failedResult(error); }
+      results[platform] = normalizePublishResult(await publishThroughAdapter({ platform, post, credentials }));
+    } catch (error) {
+      results[platform] = failedResult(error);
+    }
   }
   return results;
 };
