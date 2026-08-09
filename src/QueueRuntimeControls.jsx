@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, Play, RotateCcw, ShieldCheck, Stethoscope } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FlaskConical, Loader2, Play, RotateCcw, ShieldCheck, Stethoscope } from 'lucide-react';
 import {
   checkAndPublishDuePosts,
   getQueueSummary,
@@ -24,41 +24,57 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
     onQueueChanged?.();
   };
 
-  const refreshDiagnostics = () => {
-    setHealthReport(inspectQueueHealth({ credentials: apiCredentials }));
-    setPreflightReport(inspectPublisherPreflight({ credentials: apiCredentials }));
+  const refreshDiagnostics = (credentials = apiCredentials) => {
+    setHealthReport(inspectQueueHealth({ credentials }));
+    setPreflightReport(inspectPublisherPreflight({ credentials }));
+  };
+
+  const runPublisher = async (credentials, modeLabel) => {
+    const preflight = inspectPublisherPreflight({ credentials });
+    setPreflightReport(preflight);
+
+    if (preflight.dueCount === 0) {
+      setNotice({ type: 'success', text: 'Không có bài local nào đến hạn.' });
+      return;
+    }
+
+    if (preflight.runnableCount === 0) {
+      setNotice({
+        type: 'error',
+        text: `${preflight.blockedCount} bài đến hạn đang bị chặn bởi preflight.`,
+      });
+      return;
+    }
+
+    const processed = await checkAndPublishDuePosts(credentials);
+    const failed = processed.filter((post) => post.status === 'failed').length;
+    setNotice({
+      type: failed || preflight.blockedCount ? 'error' : 'success',
+      text: `${modeLabel}: đã xử lý ${processed.length} bài${failed ? `, ${failed} bài thất bại` : ''}${preflight.blockedCount ? `; ${preflight.blockedCount} bài bị chặn` : ''}.`,
+    });
+    refreshDiagnostics(credentials);
+    finish();
   };
 
   const processDue = async () => {
     setAction('process');
     setNotice(null);
     try {
-      const preflight = inspectPublisherPreflight({ credentials: apiCredentials });
-      setPreflightReport(preflight);
-
-      if (preflight.dueCount === 0) {
-        setNotice({ type: 'success', text: 'Không có bài local nào đến hạn.' });
-        return;
-      }
-
-      if (preflight.runnableCount === 0) {
-        setNotice({
-          type: 'error',
-          text: `${preflight.blockedCount} bài đến hạn đang bị chặn vì thiếu token, nội dung hoặc media.`,
-        });
-        return;
-      }
-
-      const processed = await checkAndPublishDuePosts(apiCredentials);
-      const failed = processed.filter((post) => post.status === 'failed').length;
-      setNotice({
-        type: failed || preflight.blockedCount ? 'error' : 'success',
-        text: `Đã xử lý ${processed.length} bài${failed ? `, ${failed} bài thất bại` : ''}${preflight.blockedCount ? `; ${preflight.blockedCount} bài bị chặn bởi preflight` : ''}.`,
-      });
-      refreshDiagnostics();
-      finish();
+      await runPublisher(apiCredentials, 'LIVE');
     } catch (error) {
       setNotice({ type: 'error', text: error?.message || 'Không thể xử lý hàng đợi local.' });
+    } finally {
+      setAction('');
+    }
+  };
+
+  const processMock = async () => {
+    setAction('mock');
+    setNotice(null);
+    try {
+      await runPublisher({ ...apiCredentials, __publisherMode: 'mock' }, 'MOCK');
+    } catch (error) {
+      setNotice({ type: 'error', text: error?.message || 'Không thể chạy kiểm thử mock.' });
     } finally {
       setAction('');
     }
@@ -133,15 +149,19 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
             <p className="mt-1 text-sm text-gray-400">
               {summary.scheduled} chờ · {summary.due} đến hạn · {summary.failed} thất bại · {credentialCount}/3 token trong phiên
             </p>
+            <p className="mt-1 text-xs text-emerald-300">MOCK miễn phí: không cần token, không gửi dữ liệu tới mạng xã hội.</p>
             {preflightReport && (
               <p className="mt-1 text-xs text-sky-300">
-                Preflight: {preflightReport.runnableCount} sẵn sàng · {preflightReport.blockedCount} bị chặn
+                Preflight {preflightReport.mode || 'live'}: {preflightReport.runnableCount} sẵn sàng · {preflightReport.blockedCount} bị chặn
               </p>
             )}
           </div>
           <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={processMock} disabled={Boolean(action)} className="inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold hover:bg-cyan-600 disabled:opacity-40">
+              {action === 'mock' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />} Kiểm thử miễn phí
+            </button>
             <button type="button" onClick={processDue} disabled={Boolean(action)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold hover:bg-emerald-500 disabled:opacity-40">
-              {action === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Xử lý bài đến hạn
+              {action === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Đăng LIVE
             </button>
             <button type="button" onClick={retryAll} disabled={Boolean(action) || summary.failed === 0} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold hover:bg-amber-500 disabled:opacity-40">
               {action === 'retry' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Thử lại lỗi
