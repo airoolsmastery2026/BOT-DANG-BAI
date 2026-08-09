@@ -33,6 +33,7 @@ jobs:
         run: |
           node --check server/zalo-server.js
           node --check server/linkedin-server.js
+          node --check server/dhp-media-ingress.js
 
       - name: Run unit tests
         env:
