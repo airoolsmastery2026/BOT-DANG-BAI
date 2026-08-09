@@ -42,7 +42,7 @@ export function generateCampaignContent(workflow, options = {}) {
   const channels = workflow.channels.map((channel) => {
     const rules = PLATFORM_RULES[channel.platform] || PLATFORM_RULES.facebook;
     const hashtags = normalizeHashtags(
-      [...baseHashtags, channel.platform, ...(options.hashtags || [])],
+      [channel.platform, ...baseHashtags, ...(options.hashtags || [])],
       rules.hashtagCount,
     );
     const content = generateTemplatePost(
