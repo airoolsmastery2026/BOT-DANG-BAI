@@ -24,11 +24,22 @@ function normalizeScheduleSlots(value) {
     .slice(0, MAX_SCHEDULE_SLOTS);
 }
 
+function normalizePublicUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    return ['http:', 'https:'].includes(url.protocol) ? url.toString() : '';
+  } catch {
+    return '';
+  }
+}
+
 export function normalizeSchedulerHandoff(value) {
   if (!value || typeof value !== 'object') return null;
 
-  const campaignId = String(value.campaignId || value.workflow?.campaign?.id || '').trim();
-  const topic = String(value.topic || value.workflow?.campaign?.topic || '').trim();
+  const campaignId = String(value.campaignId || value.workflow?.campaign?.id || '').trim().slice(0, 160);
+  const topic = String(value.topic || value.workflow?.campaign?.topic || '').trim().slice(0, 500);
   const rawPlatforms = Array.isArray(value.platforms)
     ? value.platforms
     : value.workflow?.channels?.map((channel) => channel.platform) || [];
@@ -61,12 +72,10 @@ export function normalizeSchedulerHandoff(value) {
     postsPerDay: Number(value.workflow?.campaign?.postsPerDay || value.workflow?.schedulePlan?.postsPerDay || 1),
     hasImageJob: jobs.some((job) => job.type === 'image'),
     hasVideoJob: Boolean(value.videoUrl) || jobs.some((job) => job.type === 'video'),
-    content: String(value.content || ''),
-    videoUrl: String(value.videoUrl || ''),
-    source: String(value.source || ''),
-    sourceJobId: String(value.sourceJobId || ''),
-    sourceAccessToken: String(value.sourceAccessToken || ''),
-    sourceCallbackUrl: String(value.sourceCallbackUrl || ''),
+    content: String(value.content || '').slice(0, 50_000),
+    videoUrl: normalizePublicUrl(value.videoUrl),
+    source: String(value.source || '').slice(0, 80),
+    sourceJobId: String(value.sourceJobId || '').slice(0, 160),
     handedOffAt: value.handedOffAt || value.createdAt || null,
   };
 }
