@@ -54,8 +54,9 @@ export function detectPlatforms(command) {
 export function detectMediaTypes(command) {
   const normalized = normalizeText(command);
   const mediaTypes = [];
-  if (/\b(ảnh|hình|image|thumbnail)\b/.test(normalized)) mediaTypes.push('image');
-  if (/\b(video|reel|short|storyboard|kịch bản)\b/.test(normalized)) mediaTypes.push('video');
+  // Do not use ASCII-style word boundaries around Vietnamese words such as "ảnh".
+  if (/(ảnh|hình|image|thumbnail)/u.test(normalized)) mediaTypes.push('image');
+  if (/(video|reel|short|storyboard|kịch bản)/u.test(normalized)) mediaTypes.push('video');
   return mediaTypes.length ? mediaTypes : ['image'];
 }
 
