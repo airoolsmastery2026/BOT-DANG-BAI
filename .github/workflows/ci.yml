@@ -38,7 +38,9 @@ jobs:
           node --check api/dhp/social-lead.js
 
       - name: Run bridge unit tests
-        run: node --test server/dhp-social-lead-bridge.test.js
+        run: |
+          node --test server/dhp-social-lead-bridge.test.js
+          node --test server/dhp-media-cloud-sync.test.js
 
       - name: Run unit tests
         env:
