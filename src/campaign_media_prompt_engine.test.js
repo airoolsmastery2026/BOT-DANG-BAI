@@ -66,9 +66,9 @@ describe('campaign media prompt engine', () => {
     const expected = {
       facebook: { image: '4:5', video: '9:16' },
       tiktok: { image: '9:16', video: '9:16' },
-      youtube: { image: '16:9', video: '16:9' },
-      zalo: { image: '4:3', video: '16:9' },
-      linkedin: { image: '1.91:1', video: '16:9' },
+      youtube: { image: '16:9', video: '9:16' },
+      zalo: { image: '4:5', video: '9:16' },
+      linkedin: { image: '4:5', video: '16:9' },
       pinterest: { image: '2:3', video: '9:16' },
     };
 
