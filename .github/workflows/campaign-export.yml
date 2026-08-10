@@ -1,0 +1,33 @@
+name: Campaign Export CI
+
+on:
+  pull_request:
+    paths:
+      - 'public/campaign-export.html'
+      - 'server/campaign-export-page.test.js'
+      - '.github/workflows/campaign-export.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'public/campaign-export.html'
+      - 'server/campaign-export-page.test.js'
+      - '.github/workflows/campaign-export.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: campaign-export-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate export and secret sanitization contract
+        run: node --test server/campaign-export-page.test.js
