@@ -7,6 +7,7 @@ const {
   MAX_ATTEMPTS,
   assertNoDuplicate,
   getDueJobs,
+  isPlatformApiError,
   markPublishing,
   mergePublishResults,
   normalizeJob,
@@ -30,6 +31,13 @@ test('normalizes supported platforms and creates idempotency key', () => {
   assert.equal(job.status, JOB_STATUS.SCHEDULED);
   assert.equal(job.attemptCount, 0);
   assert.equal(job.idempotencyKey.length, 64);
+});
+
+test('recognizes TikTok ok envelope as success and real API errors as failures', () => {
+  assert.equal(isPlatformApiError({ code: 'ok', message: '' }), false);
+  assert.equal(isPlatformApiError({ code: 0 }), false);
+  assert.equal(isPlatformApiError({ code: 'invalid_param', message: 'bad request' }), true);
+  assert.equal(isPlatformApiError({ code: 190, message: 'invalid token' }), true);
 });
 
 test('rejects duplicate active idempotency key', () => {
@@ -62,6 +70,42 @@ test('merges platform results and keeps only failed platform pending', () => {
   const retried = retryJob(partial, { now: 3000, delayMs: 1000 });
   assert.equal(retried.status, JOB_STATUS.SCHEDULED);
   assert.deepEqual(retried.pendingPlatforms, ['instagram']);
+});
+
+test('polling-only platform does not consume retry budget', () => {
+  const polling = baseJob({
+    platforms: ['tiktok'],
+    status: JOB_STATUS.SCHEDULED,
+    attemptCount: 1,
+    results: {
+      tiktok: {
+        success: false,
+        pending: true,
+        retryable: true,
+        externalPostId: 'publish-123',
+        remoteStatus: 'PROCESSING_DOWNLOAD',
+      },
+    },
+  });
+
+  const active = markPublishing(polling, { now: 1000 });
+  assert.equal(active.attemptCount, 1);
+
+  const waiting = mergePublishResults(active, {
+    tiktok: {
+      success: false,
+      pending: true,
+      retryable: true,
+      externalPostId: 'publish-123',
+      remoteStatus: 'PROCESSING_DOWNLOAD',
+    },
+  }, { now: 2000 });
+  assert.equal(waiting.status, JOB_STATUS.FAILED);
+  assert.equal(waiting.deadLetteredAt, null);
+
+  const nextPoll = retryJob(waiting, { now: 3000, delayMs: 30_000 });
+  assert.equal(nextPoll.status, JOB_STATUS.SCHEDULED);
+  assert.equal(nextPoll.attemptCount, 1);
 });
 
 test('moves exhausted job to dead letter', () => {
