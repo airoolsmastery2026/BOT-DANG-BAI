@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Clock3, FileText, ListPlus, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { CheckCircle2, Clock3, FileText, ListPlus, RefreshCw, Send, Sparkles, Trash2 } from 'lucide-react';
 import {
   loadCampaignWorkflows,
   removeCampaignWorkflow,
   saveCampaignWorkflow,
 } from './campaign_storage';
+import { enrichWorkflowMediaPrompts } from './campaign_media_prompt_engine';
 import { evaluateCampaignReadiness } from './campaign_pipeline';
 import { enqueueCampaignWorkflow } from './campaign_queue_builder';
 import { SCHEDULER_HANDOFF_STORAGE_KEY } from './scheduler_handoff';
@@ -53,6 +54,30 @@ const CampaignDrafts = ({ onNavigate }) => {
       });
     } catch (error) {
       setNotice({ type: 'error', message: error.message || 'Không thể cập nhật chiến dịch.' });
+    }
+  };
+
+  const repairMediaPrompts = (workflow) => {
+    setProcessingId(workflow.campaign.id);
+    try {
+      const repaired = enrichWorkflowMediaPrompts(workflow);
+      const readiness = evaluateCampaignReadiness(repaired);
+      saveCampaignWorkflow({
+        ...repaired,
+        workflowStatus: workflow.workflowStatus === 'scheduled' ? 'draft' : workflow.workflowStatus,
+        mediaPromptsRepairedAt: new Date().toISOString(),
+      });
+      refresh();
+      setNotice({
+        type: readiness.media?.ready ? 'success' : 'error',
+        message: readiness.media?.ready
+          ? 'Đã hoàn thiện prompt ảnh và storyboard video cho chiến dịch.'
+          : readiness.errors.join(' '),
+      });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message || 'Không thể hoàn thiện media prompt.' });
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -164,6 +189,7 @@ const CampaignDrafts = ({ onNavigate }) => {
               const lastPublishAt = slots[slots.length - 1]?.publishAt || firstPublishAt;
               const busy = processingId === workflow.campaign.id;
               const canQueue = readiness.ready && workflow.workflowStatus === 'approved' && !busy;
+              const mediaNeedsRepair = readiness.media?.ready === false;
 
               return (
                 <article key={workflow.campaign.id} className="rounded-2xl border border-white/10 bg-gray-900/70 p-5 shadow-xl">
@@ -193,6 +219,11 @@ const CampaignDrafts = ({ onNavigate }) => {
                   {readiness.warnings.length > 0 && <p className="mt-2 text-sm text-yellow-200">{readiness.warnings.join(' ')}</p>}
 
                   <div className="mt-5 flex flex-wrap gap-2">
+                    {mediaNeedsRepair && (
+                      <button type="button" disabled={busy} onClick={() => repairMediaPrompts(workflow)} className="inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-3 py-2 text-sm font-semibold hover:bg-cyan-600 disabled:opacity-40">
+                        <Sparkles className="h-4 w-4" aria-hidden="true" /> Hoàn thiện media prompt
+                      </button>
+                    )}
                     {workflow.workflowStatus === 'approved' ? (
                       <button type="button" onClick={() => updateStatus(workflow, 'draft')} className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/10">Hoàn tác duyệt</button>
                     ) : workflow.workflowStatus !== 'scheduled' ? (
@@ -201,7 +232,7 @@ const CampaignDrafts = ({ onNavigate }) => {
                       </button>
                     ) : null}
                     <button type="button" disabled={!canQueue} onClick={() => handleEnqueueAll(workflow)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40">
-                      <ListPlus className="h-4 w-4" aria-hidden="true" /> {busy ? 'Đang xếp lịch...' : 'Xếp toàn bộ vào hàng đợi'}
+                      <ListPlus className="h-4 w-4" aria-hidden="true" /> {busy ? 'Đang xử lý...' : 'Xếp toàn bộ vào hàng đợi'}
                     </button>
                     <button type="button" disabled={!canQueue} onClick={() => handleOpenScheduler(workflow)} className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-3 py-2 text-sm font-semibold hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-40">
                       <Send className="h-4 w-4" aria-hidden="true" /> Mở trình lên lịch
