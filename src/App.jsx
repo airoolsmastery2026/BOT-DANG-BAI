@@ -56,6 +56,7 @@ const getInitialTab = () => {
 const App = () => {
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [apiCredentials, setApiCredentials] = useState(loadPlatformCredentials);
+  const [connectionVerification, setConnectionVerification] = useState({});
   const [queueRefreshKey, setQueueRefreshKey] = useState(0);
 
   const connectedPlatforms = useMemo(() => getConnectedPlatforms(apiCredentials), [apiCredentials]);
@@ -63,6 +64,18 @@ const App = () => {
     () => Object.values(connectedPlatforms).filter(Boolean).length,
     [connectedPlatforms],
   );
+  const verifiedPlatforms = useMemo(() => Object.fromEntries(
+    Object.entries(connectionVerification).map(([platform, result]) => [platform, result?.ok === true]),
+  ), [connectionVerification]);
+  const verifiedPlatformCount = useMemo(
+    () => Object.entries(connectedPlatforms).filter(([platform, connected]) => connected && verifiedPlatforms[platform]).length,
+    [connectedPlatforms, verifiedPlatforms],
+  );
+  const runtimeCredentials = useMemo(() => ({
+    ...apiCredentials,
+    __requireVerification: true,
+    __verifiedPlatforms: verifiedPlatforms,
+  }), [apiCredentials, verifiedPlatforms]);
 
   useEffect(() => {
     try {
@@ -97,7 +110,7 @@ const App = () => {
               <p className="dhp-eyebrow">Đại Hải Phát · Social Content AI</p>
               <div className="mt-1 flex items-center gap-3">
                 <div className="dhp-logo-mark">DHP</div>
-                <div><h1 className="text-xl font-bold tracking-tight text-white md:text-2xl">BOT ĐĂNG BÀI</h1><p className="mt-0.5 text-xs text-slate-400" aria-live="polite">Đang mở: {activeTabLabel} · {connectedPlatformCount}/3 tài khoản LIVE</p></div>
+                <div><h1 className="text-xl font-bold tracking-tight text-white md:text-2xl">BOT ĐĂNG BÀI</h1><p className="mt-0.5 text-xs text-slate-400" aria-live="polite">Đang mở: {activeTabLabel} · {verifiedPlatformCount}/{connectedPlatformCount || 0} tài khoản LIVE đã kiểm tra</p></div>
               </div>
             </div>
             <nav className="flex max-w-full gap-2 overflow-x-auto pb-1" aria-label="Điều hướng chính">
@@ -112,26 +125,29 @@ const App = () => {
       </header>
 
       <main id="main-content" tabIndex="-1">
-        {activeTab === 'dashboard' && <SystemDashboard onNavigate={setActiveTab} apiCredentials={apiCredentials} />}
+        {activeTab === 'dashboard' && <SystemDashboard onNavigate={setActiveTab} apiCredentials={runtimeCredentials} />}
         {activeTab === 'orchestration' && <AIOrchestration />}
         {activeTab === 'studio' && <CampaignStudio />}
         {activeTab === 'planning' && <ContentOperations onNavigate={setActiveTab} />}
         {activeTab === 'drafts' && <CampaignDrafts onNavigate={setActiveTab} />}
         {activeTab === 'media-inbox' && <DhpMediaInbox connectedPlatforms={connectedPlatforms} onQueueChanged={() => setQueueRefreshKey((value) => value + 1)} />}
-        {activeTab === 'queue' && <><QueueRuntimeControls apiCredentials={apiCredentials} onQueueChanged={() => setQueueRefreshKey((value) => value + 1)} /><QueueMonitor key={queueRefreshKey} apiCredentials={apiCredentials} /></>}
-        {activeTab === 'connections' && <PlatformConnections credentials={apiCredentials} onChange={setApiCredentials} />}
+        {activeTab === 'queue' && <><QueueRuntimeControls apiCredentials={runtimeCredentials} onQueueChanged={() => setQueueRefreshKey((value) => value + 1)} /><QueueMonitor key={queueRefreshKey} apiCredentials={runtimeCredentials} /></>}
+        {activeTab === 'connections' && <PlatformConnections credentials={apiCredentials} onChange={setApiCredentials} onVerificationChange={setConnectionVerification} />}
         {activeTab === 'notifications' && <NotificationCenter />}
         {activeTab === 'scheduler' && (
           <div className="dhp-page p-4 text-white md:p-8"><div className="mx-auto max-w-7xl">
             <p className="dhp-eyebrow">Publishing workspace</p><h2 className="mb-2 mt-2 text-3xl font-bold tracking-tight md:text-4xl">Đăng bài tự động</h2>
             <p className="mb-5 text-slate-400">Soạn nội dung, gắn liên kết về website, lên lịch và phân phối lên các nền tảng đã kết nối.</p>
-            {connectedPlatformCount === 0 && (
+            {(connectedPlatformCount === 0 || verifiedPlatformCount < connectedPlatformCount) && (
               <div className="mb-6 flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-100 sm:flex-row sm:items-center sm:justify-between">
-                <div><strong>Chưa có tài khoản LIVE.</strong><p className="mt-1 text-sm text-amber-200/80">Kết nối ít nhất một tài khoản trước khi đăng thật. Chế độ MOCK vẫn dùng được để kiểm thử.</p></div>
+                <div>
+                  <strong>{connectedPlatformCount === 0 ? 'Chưa có tài khoản LIVE.' : 'Có tài khoản chưa được kiểm tra.'}</strong>
+                  <p className="mt-1 text-sm text-amber-200/80">LIVE chỉ chạy với tài khoản đã kiểm tra thành công trong phiên. Chế độ MOCK vẫn dùng được.</p>
+                </div>
                 <button type="button" onClick={() => setActiveTab('connections')} className="shrink-0 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500">Mở Kết nối tài khoản</button>
               </div>
             )}
-            <PostScheduler connectedPlatforms={connectedPlatforms} apiCredentials={apiCredentials} />
+            <PostScheduler connectedPlatforms={connectedPlatforms} apiCredentials={runtimeCredentials} />
           </div></div>
         )}
         {activeTab === 'zalo' && <ZaloControl />}
