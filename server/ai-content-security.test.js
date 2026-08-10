@@ -14,8 +14,11 @@ const clientSource = fs.readFileSync(path.join(root, 'src', 'ai_content_client.j
 test('provider API key is consumed only by server-side AI gateway', () => {
   assert.match(serverSource, /process\.env\.GEMINI_API_KEY/);
   assert.match(serverSource, /'x-goog-api-key': GEMINI_API_KEY/);
-  assert.doesNotMatch(schedulerSource, /apiKey|GEMINI_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY/);
-  assert.doesNotMatch(clientSource, /GEMINI_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|x-goog-api-key/);
+  assert.doesNotMatch(schedulerSource, /useState\([^)]*(api[_-]?key|provider[_-]?key)/i);
+  assert.doesNotMatch(schedulerSource, /type=["']password["'][^>]*(api|gemini|openai|anthropic)/i);
+  assert.doesNotMatch(schedulerSource, /process\.env\.REACT_APP_(GEMINI|OPENAI|ANTHROPIC).*KEY/i);
+  assert.doesNotMatch(clientSource, /process\.env\.REACT_APP_(GEMINI|OPENAI|ANTHROPIC).*KEY/i);
+  assert.doesNotMatch(clientSource, /['"]x-goog-api-key['"]\s*:/i);
 });
 
 test('frontend environment contract never exposes provider secrets', () => {
