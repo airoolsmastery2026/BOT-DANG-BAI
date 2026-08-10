@@ -2,13 +2,17 @@ export const PLATFORM_CREDENTIALS_KEY = 'bot_dang_bai_platform_credentials';
 
 const EMPTY_CREDENTIALS = Object.freeze({
   facebook_token: '',
+  facebook_page_id: '',
   instagram_token: '',
+  instagram_user_id: '',
   tiktok_token: '',
 });
 
 const normalizeCredentials = (value) => ({
   facebook_token: String(value?.facebook_token || '').trim(),
+  facebook_page_id: String(value?.facebook_page_id || '').trim(),
   instagram_token: String(value?.instagram_token || '').trim(),
+  instagram_user_id: String(value?.instagram_user_id || '').trim(),
   tiktok_token: String(value?.tiktok_token || '').trim(),
 });
 
@@ -42,10 +46,35 @@ export function clearPlatformCredentials(storage) {
 export function getConnectedPlatforms(credentials) {
   const normalized = normalizeCredentials(credentials);
   return {
-    facebook: Boolean(normalized.facebook_token),
-    instagram: Boolean(normalized.instagram_token),
+    facebook: Boolean(normalized.facebook_token && normalized.facebook_page_id),
+    instagram: Boolean(normalized.instagram_token && normalized.instagram_user_id),
     tiktok: Boolean(normalized.tiktok_token),
   };
 }
 
-export { EMPTY_CREDENTIALS };
+export function getPlatformConnectionIssues(credentials) {
+  const normalized = normalizeCredentials(credentials);
+  return {
+    facebook: [
+      !normalized.facebook_token ? 'Thiếu Page Access Token' : null,
+      !normalized.facebook_page_id ? 'Thiếu Facebook Page ID' : null,
+    ].filter(Boolean),
+    instagram: [
+      !normalized.instagram_token ? 'Thiếu Instagram Access Token' : null,
+      !normalized.instagram_user_id ? 'Thiếu Instagram Business/Creator ID' : null,
+    ].filter(Boolean),
+    tiktok: [
+      !normalized.tiktok_token ? 'Thiếu TikTok Access Token' : null,
+    ].filter(Boolean),
+  };
+}
+
+export function getDefaultTargetIds(credentials) {
+  const normalized = normalizeCredentials(credentials);
+  return {
+    facebook: normalized.facebook_page_id,
+    instagram: normalized.instagram_user_id,
+  };
+}
+
+export { EMPTY_CREDENTIALS, normalizeCredentials };
