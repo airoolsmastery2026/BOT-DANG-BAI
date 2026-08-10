@@ -9,6 +9,7 @@ import {
 import { inspectQueueHealth } from './queue_health';
 import { inspectPublisherPreflight } from './publisher_preflight';
 import { MOCK_SCENARIO } from './publisher_adapter';
+import { getConnectedPlatforms } from './platform_credentials';
 
 const MOCK_SCENARIO_OPTIONS = [
   [MOCK_SCENARIO.SUCCESS, 'Thành công'],
@@ -27,7 +28,10 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
   const [mockScenario, setMockScenario] = useState(MOCK_SCENARIO.SUCCESS);
 
   const summary = useMemo(() => getQueueSummary(), [refreshKey]);
-  const credentialCount = Object.values(apiCredentials).filter(Boolean).length;
+  const connectedAccounts = useMemo(
+    () => Object.values(getConnectedPlatforms(apiCredentials)).filter(Boolean).length,
+    [apiCredentials],
+  );
 
   const finish = () => {
     setRefreshKey((value) => value + 1);
@@ -147,7 +151,7 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-300">Local Queue Runtime</p>
             <h2 className="mt-1 text-xl font-bold">Điều khiển xử lý hàng đợi</h2>
-            <p className="mt-1 text-sm text-gray-400">{summary.scheduled} chờ · {summary.due} đến hạn · {summary.failed} thất bại · {summary.dead_letter || 0} Dead Letter · {credentialCount}/3 token</p>
+            <p className="mt-1 text-sm text-gray-400">{summary.scheduled} chờ · {summary.due} đến hạn · {summary.failed} thất bại · {summary.dead_letter || 0} Dead Letter · {connectedAccounts}/3 tài khoản sẵn sàng</p>
             <p className="mt-1 text-xs text-emerald-300">MOCK miễn phí: không cần token, không gửi dữ liệu tới mạng xã hội.</p>
             {preflightReport && <p className="mt-1 text-xs text-sky-300">Preflight {preflightReport.mode || 'live'}: {preflightReport.runnableCount} sẵn sàng · {preflightReport.blockedCount} bị chặn</p>}
           </div>
