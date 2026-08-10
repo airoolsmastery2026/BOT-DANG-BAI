@@ -17,6 +17,11 @@ const success = (platform, account) => ({
   checkedAt: new Date().toISOString(),
 });
 
+const normalizeRemoteId = (value, prefix = '') => {
+  const raw = String(value || '').trim();
+  return prefix && raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+};
+
 export async function verifyPlatformConnection(platform, credentials) {
   const normalized = normalizeCredentials(credentials);
 
@@ -27,7 +32,11 @@ export async function verifyPlatformConnection(platform, credentials) {
       }
       const api = new FacebookAPI(normalized.facebook_token);
       const account = await api.getPageDetails(normalized.facebook_page_id);
-      return account ? success(platform, account) : failure(platform, 'Không đọc được Facebook Page. Kiểm tra token, Page ID và quyền.');
+      if (!account) return failure(platform, 'Không đọc được Facebook Page. Kiểm tra token, Page ID và quyền.');
+      if (String(account.id || '').trim() !== normalized.facebook_page_id) {
+        return failure(platform, 'Token không trả về đúng Facebook Page ID đã cấu hình.');
+      }
+      return success(platform, account);
     }
 
     if (platform === 'instagram') {
@@ -37,7 +46,13 @@ export async function verifyPlatformConnection(platform, credentials) {
       const api = new InstagramAPI(normalized.instagram_token);
       const accounts = await api.searchAccounts([], { limit: 1 });
       const account = Array.isArray(accounts) ? accounts[0] : null;
-      return account ? success(platform, account) : failure(platform, 'Không đọc được tài khoản Instagram. Kiểm tra token và quyền.');
+      if (!account) return failure(platform, 'Không đọc được tài khoản Instagram. Kiểm tra token và quyền.');
+
+      const remoteId = normalizeRemoteId(account.sourceId || account.id, 'ig_');
+      if (remoteId !== normalized.instagram_user_id) {
+        return failure(platform, 'Token Instagram không khớp Business/Creator ID đã cấu hình.');
+      }
+      return success(platform, account);
     }
 
     if (platform === 'tiktok') {
