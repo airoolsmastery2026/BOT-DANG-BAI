@@ -15,6 +15,14 @@ const createIssue = (post, platform, code, message) => ({
   message,
 });
 
+const resolveTargetId = (post, credentials, platform) => {
+  const explicit = String(post?.targetIds?.[platform] || '').trim();
+  if (explicit) return explicit;
+  if (platform === 'facebook') return String(credentials.facebook_page_id || '').trim();
+  if (platform === 'instagram') return String(credentials.instagram_user_id || '').trim();
+  return '';
+};
+
 export const validatePostForPublishing = (post, credentials = {}) => {
   const issues = [];
   const pendingPlatforms = getPendingPlatforms(post);
@@ -50,9 +58,12 @@ export const validatePostForPublishing = (post, credentials = {}) => {
       issues.push(createIssue(post, platform, 'missing_video', 'TikTok yêu cầu URL video công khai.'));
     }
 
-    const targetId = post.targetIds?.[platform];
-    if (!mockMode && platform !== 'tiktok' && targetId !== undefined && !String(targetId || '').trim()) {
-      issues.push(createIssue(post, platform, 'invalid_target', `Target ID ${platform} không hợp lệ.`));
+    if (!mockMode && platform === 'facebook' && !resolveTargetId(post, credentials, platform)) {
+      issues.push(createIssue(post, platform, 'missing_target', 'Thiếu Facebook Page ID. Hãy cấu hình tại mục Kết nối.'));
+    }
+
+    if (!mockMode && platform === 'instagram' && !resolveTargetId(post, credentials, platform)) {
+      issues.push(createIssue(post, platform, 'missing_target', 'Thiếu Instagram Business/Creator ID. Hãy cấu hình tại mục Kết nối.'));
     }
   });
 
