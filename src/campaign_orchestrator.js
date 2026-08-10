@@ -1,4 +1,8 @@
 import { generateCampaignContent } from './campaign_content_engine';
+import {
+  enrichWorkflowMediaPrompts,
+  inspectMediaPromptReadiness,
+} from './campaign_media_prompt_engine';
 import { createCampaignFromCommand, evaluateCampaignReadiness } from './campaign_pipeline';
 import { saveCampaignWorkflow } from './campaign_storage';
 
@@ -19,7 +23,7 @@ const STEP_LABELS = Object.freeze({
   analyze: 'Phân tích câu lệnh',
   plan: 'Lập kế hoạch chiến dịch',
   content: 'Tạo nội dung theo nền tảng',
-  media: 'Chuẩn bị tác vụ ảnh/video',
+  media: 'Tạo prompt ảnh và storyboard video',
   validate: 'Kiểm tra điều kiện',
   persist: 'Lưu chiến dịch',
 });
@@ -144,24 +148,45 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
     completeStep('content');
 
     startStep('media', CAMPAIGN_RUN_STATUS.GENERATING_MEDIA);
-    const mediaJobCount = run.workflow.channels.reduce(
+    const workflowWithMedia = enrichWorkflowMediaPrompts(run.workflow);
+    const mediaJobCount = workflowWithMedia.channels.reduce(
       (total, channel) => total + channel.jobs.length,
+      0,
+    );
+    const imagePromptCount = workflowWithMedia.channels.reduce(
+      (total, channel) => total + channel.jobs.filter((job) => job.type === 'image' && job.prompt?.prompt).length,
+      0,
+    );
+    const storyboardSceneCount = workflowWithMedia.channels.reduce(
+      (total, channel) => total + channel.jobs
+        .filter((job) => job.type === 'video')
+        .reduce((sceneTotal, job) => sceneTotal + (job.storyboard?.length || 0), 0),
       0,
     );
     run = {
       ...run,
+      workflow: workflowWithMedia,
       metrics: {
         ...run.metrics,
         mediaJobCount,
-        channelCount: run.workflow.channels.length,
+        imagePromptCount,
+        storyboardSceneCount,
+        channelCount: workflowWithMedia.channels.length,
       },
     };
     completeStep('media');
 
     startStep('validate', CAMPAIGN_RUN_STATUS.VALIDATING);
     const readiness = evaluateCampaignReadiness(run.workflow);
-    run = { ...run, readiness };
-    if (readiness.errors.length) throw new Error(readiness.errors.join(' '));
+    const mediaReadiness = inspectMediaPromptReadiness(run.workflow);
+    const combinedReadiness = {
+      ...readiness,
+      ready: readiness.ready && mediaReadiness.ready,
+      errors: [...new Set([...readiness.errors, ...mediaReadiness.errors])],
+      media: mediaReadiness,
+    };
+    run = { ...run, readiness: combinedReadiness };
+    if (combinedReadiness.errors.length) throw new Error(combinedReadiness.errors.join(' '));
     if (run.workflow.channels.some((channel) => !channel.content?.text?.trim())) {
       throw new Error('Có kênh chưa tạo được nội dung.');
     }
@@ -170,11 +195,11 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
     startStep('persist', CAMPAIGN_RUN_STATUS.VALIDATING);
     const workflowToSave = {
       ...run.workflow,
-      workflowStatus: run.mode === 'automatic' && readiness.ready ? 'approved' : 'draft',
+      workflowStatus: run.mode === 'automatic' && combinedReadiness.ready ? 'approved' : 'draft',
       orchestrator: {
         runId: run.runId,
         mode: run.mode,
-        readiness,
+        readiness: combinedReadiness,
         metrics: run.metrics,
       },
     };
@@ -184,7 +209,7 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
 
     run = {
       ...run,
-      status: run.mode === 'automatic' && readiness.ready
+      status: run.mode === 'automatic' && combinedReadiness.ready
         ? CAMPAIGN_RUN_STATUS.READY
         : CAMPAIGN_RUN_STATUS.WAITING_APPROVAL,
     };
