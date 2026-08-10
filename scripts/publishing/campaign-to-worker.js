@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 
-const WORKER_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok']);
+const WORKER_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok', 'linkedin', 'pinterest']);
 
 const clean = (value, max = 5000) => String(value || '').trim().slice(0, max);
 
@@ -65,6 +65,9 @@ function validateCampaignWorkflow(workflow) {
       if (platform === 'tiktok' && !pickMediaUrl(channel.jobs, 'video')) {
         errors.push('tiktok: thiếu video URL đã render công khai.');
       }
+      if (platform === 'pinterest' && !pickMediaUrl(channel.jobs, 'image')) {
+        errors.push('pinterest: thiếu image URL đã render công khai.');
+      }
     });
 
   return { valid: errors.length === 0, errors: [...new Set(errors)] };
@@ -109,7 +112,7 @@ function campaignWorkflowToWorkerJobs(workflow) {
     }
   }
 
-  if (!jobs.length) throw new Error('Workflow không có Facebook, Instagram hoặc TikTok để gửi sang persistent worker.');
+  if (!jobs.length) throw new Error('Workflow không có nền tảng nào được persistent worker hỗ trợ.');
 
   return {
     campaignId,
