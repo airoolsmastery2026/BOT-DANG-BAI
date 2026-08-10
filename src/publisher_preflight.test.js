@@ -25,6 +25,29 @@ describe('publisher preflight', () => {
     expect(result.pendingPlatforms).toEqual(['facebook']);
   });
 
+  test('blocks configured but unverified account when live verification is required', () => {
+    const result = validatePostForPublishing(post(), {
+      facebook_token: 'token',
+      facebook_page_id: 'page-1',
+      __requireVerification: true,
+      __verifiedPlatforms: {},
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.issues.map((item) => item.code)).toContain('unverified_account');
+  });
+
+  test('accepts verified account when live verification is required', () => {
+    const result = validatePostForPublishing(post(), {
+      facebook_token: 'token',
+      facebook_page_id: 'page-1',
+      __requireVerification: true,
+      __verifiedPlatforms: { facebook: true },
+    });
+
+    expect(result.ready).toBe(true);
+  });
+
   test('blocks a live Facebook post without Page ID', () => {
     const result = validatePostForPublishing(post(), { facebook_token: 'token' });
     expect(result.ready).toBe(false);
@@ -70,8 +93,12 @@ describe('publisher preflight', () => {
     expect(result.runnablePostIds).toEqual(['post-1']);
   });
 
-  test('mock mode remains credential-free', () => {
-    const result = validatePostForPublishing(post(), { __publisherMode: 'mock' });
+  test('mock mode remains credential-free even when live verification is required', () => {
+    const result = validatePostForPublishing(post(), {
+      __publisherMode: 'mock',
+      __requireVerification: true,
+      __verifiedPlatforms: {},
+    });
     expect(result.ready).toBe(true);
   });
 });
