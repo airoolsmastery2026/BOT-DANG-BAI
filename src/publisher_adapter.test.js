@@ -77,18 +77,31 @@ describe('publisher adapter', () => {
     expect(tiktok).toMatchObject({ success: false, errorCode: 'MOCK_TIKTOK_FAILED' });
   });
 
-  test('uses live adapter when live mode is explicit', async () => {
+  test('uses explicit post target for live Facebook publish', async () => {
     const publishPost = jest.fn().mockResolvedValue({ success: true, postId: 'fb-1' });
     FacebookAPI.mockImplementation(() => ({ publishPost }));
 
     const result = await publishThroughAdapter({
       platform: 'facebook',
-      post: { id: 'post-1', content: 'Test', targetIds: { facebook: 'page-1' } },
-      credentials: { __publisherMode: 'live', facebook_token: 'token' },
+      post: { id: 'post-1', content: 'Test', targetIds: { facebook: 'page-explicit' } },
+      credentials: { __publisherMode: 'live', facebook_token: 'token', facebook_page_id: 'page-default' },
     });
 
     expect(FacebookAPI).toHaveBeenCalledWith('token');
-    expect(publishPost).toHaveBeenCalledTimes(1);
+    expect(publishPost).toHaveBeenCalledWith('page-explicit', 'Test', { imageUrl: undefined });
     expect(result.postId).toBe('fb-1');
+  });
+
+  test('falls back to connected Facebook Page ID when post target is empty', async () => {
+    const publishPost = jest.fn().mockResolvedValue({ success: true, postId: 'fb-2' });
+    FacebookAPI.mockImplementation(() => ({ publishPost }));
+
+    await publishThroughAdapter({
+      platform: 'facebook',
+      post: { id: 'post-2', content: 'Test', targetIds: {} },
+      credentials: { __publisherMode: 'live', facebook_token: 'token', facebook_page_id: 'page-connected' },
+    });
+
+    expect(publishPost).toHaveBeenCalledWith('page-connected', 'Test', { imageUrl: undefined });
   });
 });
