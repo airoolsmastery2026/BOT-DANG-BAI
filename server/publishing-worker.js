@@ -33,6 +33,9 @@ const REQUEST_TIMEOUT_MS = Math.max(Number(process.env.DHP_PUBLISHING_WORKER_TIM
 const META_VERSION = /^v\d+\.\d+$/.test(String(process.env.DHP_META_GRAPH_API_VERSION || 'v25.0').trim())
   ? String(process.env.DHP_META_GRAPH_API_VERSION || 'v25.0').trim()
   : 'v25.0';
+const LINKEDIN_VERSION = /^\d{6}$/.test(String(process.env.DHP_LINKEDIN_VERSION || '202606').trim())
+  ? String(process.env.DHP_LINKEDIN_VERSION || '202606').trim()
+  : '202606';
 const MAX_BODY_BYTES = 64_000;
 
 if (!API_TOKEN) throw new Error('DHP_PUBLISHING_WORKER_TOKEN is required');
@@ -111,8 +114,8 @@ const readRemote = async (response, fallback) => {
   const body = await response.json().catch(() => ({}));
   const platformError = body?.error;
   if (!response.ok || isPlatformApiError(platformError)) {
-    const error = new Error(platformError?.message || fallback || `HTTP ${response.status}`);
-    error.code = platformError?.code || platformError?.error_code || `HTTP_${response.status}`;
+    const error = new Error(platformError?.message || body?.message || fallback || `HTTP ${response.status}`);
+    error.code = platformError?.code || platformError?.error_code || body?.code || `HTTP_${response.status}`;
     error.retryable = response.status === 429 || response.status >= 500;
     throw error;
   }
@@ -270,6 +273,67 @@ const publishTikTok = async (job, credentials) => {
   };
 };
 
+const linkedinHeaders = (accessToken) => ({
+  Authorization: `Bearer ${accessToken}`,
+  'Content-Type': 'application/json',
+  'X-Restli-Protocol-Version': '2.0.0',
+  'Linkedin-Version': LINKEDIN_VERSION,
+});
+
+const publishLinkedIn = async (job, credentials) => {
+  const response = await fetch('https://api.linkedin.com/rest/posts', {
+    method: 'POST',
+    headers: linkedinHeaders(credentials.accessToken),
+    body: JSON.stringify({
+      author: credentials.authorUrn,
+      commentary: job.content,
+      visibility: 'PUBLIC',
+      distribution: {
+        feedDistribution: 'MAIN_FEED',
+        targetEntities: [],
+        thirdPartyDistributionChannels: [],
+      },
+      lifecycleState: 'PUBLISHED',
+      isReshareDisabledByAuthor: false,
+    }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data?.message || data?.errorDetails?.message || `LinkedIn HTTP ${response.status}`);
+    error.code = data?.code || `HTTP_${response.status}`;
+    error.retryable = response.status === 429 || response.status >= 500;
+    throw error;
+  }
+  const externalPostId = response.headers.get('x-restli-id') || data?.id || null;
+  return { success: true, externalPostId, publishedAt: new Date().toISOString() };
+};
+
+const publishPinterest = async (job, credentials) => {
+  if (!/^https?:\/\//i.test(job.imageUrl)) throw new Error('Pinterest cần image URL HTTP/HTTPS công khai.');
+  const response = await fetch('https://api.pinterest.com/v5/pins', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${credentials.accessToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      title: job.content.slice(0, 100),
+      description: job.content.slice(0, 800),
+      board_id: credentials.boardId,
+      media_source: {
+        source_type: 'image_url',
+        url: job.imageUrl,
+        is_standard: true,
+      },
+    }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  const data = await readRemote(response, 'Pinterest publish failed.');
+  return { success: true, externalPostId: data?.id || null, publishedAt: new Date().toISOString() };
+};
+
 const verifyPlatform = async (platform) => {
   const credentials = vault.get(platform);
   if (!credentials) throw new Error(`${platform}: chưa có credential trong worker vault.`);
@@ -299,6 +363,20 @@ const verifyPlatform = async (platform) => {
     return { platform, ok: true, account: { name: data?.data?.creator_nickname || data?.data?.creator_username || 'TikTok creator' } };
   }
 
+  if (platform === 'linkedin') {
+    return { platform, ok: true, account: { id: credentials.authorUrn, name: credentials.authorUrn } };
+  }
+
+  if (platform === 'pinterest') {
+    const response = await fetch(`https://api.pinterest.com/v5/boards/${encodeURIComponent(credentials.boardId)}`, {
+      headers: { Authorization: `Bearer ${credentials.accessToken}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    const data = await readRemote(response, 'Pinterest board verify failed.');
+    if (String(data?.id || '') !== credentials.boardId) throw new Error('Pinterest token không khớp Board ID trong vault.');
+    return { platform, ok: true, account: { id: data.id, name: data.name || data.id } };
+  }
+
   throw new Error('Nền tảng chưa được hỗ trợ.');
 };
 
@@ -309,6 +387,8 @@ const publishPlatform = async (platform, job) => {
     if (platform === 'facebook') return await publishFacebook(job, credentials);
     if (platform === 'instagram') return await publishInstagram(job, credentials);
     if (platform === 'tiktok') return await publishTikTok(job, credentials);
+    if (platform === 'linkedin') return await publishLinkedIn(job, credentials);
+    if (platform === 'pinterest') return await publishPinterest(job, credentials);
     throw new Error(`Nền tảng ${platform} chưa được worker hỗ trợ.`);
   } catch (error) {
     const failure = resultFailure(error);
@@ -431,7 +511,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { data: jobs[index] });
     }
 
-    const accountMatch = url.pathname.match(/^\/v1\/accounts\/(facebook|instagram|tiktok)$/);
+    const accountMatch = url.pathname.match(/^\/v1\/accounts\/(facebook|instagram|tiktok|linkedin|pinterest)$/);
     if (accountMatch && req.method === 'PUT') {
       const body = await readBody(req);
       const metadata = vault.set(accountMatch[1], body);
@@ -441,7 +521,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { data: { platform: accountMatch[1], removed: vault.remove(accountMatch[1]) } });
     }
 
-    const verifyMatch = url.pathname.match(/^\/v1\/accounts\/(facebook|instagram|tiktok)\/verify$/);
+    const verifyMatch = url.pathname.match(/^\/v1\/accounts\/(facebook|instagram|tiktok|linkedin|pinterest)\/verify$/);
     if (verifyMatch && req.method === 'POST') {
       return json(res, 200, { data: await verifyPlatform(verifyMatch[1]) });
     }
