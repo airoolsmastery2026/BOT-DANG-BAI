@@ -41,7 +41,11 @@ const emptyCredentials = {
   tiktok_token: '',
 };
 
-const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => undefined }) => {
+const PlatformConnections = ({
+  credentials = emptyCredentials,
+  onChange = () => undefined,
+  onVerificationChange = () => undefined,
+}) => {
   const [form, setForm] = useState({ ...emptyCredentials, ...credentials });
   const [notice, setNotice] = useState(null);
   const [checking, setChecking] = useState('');
@@ -53,15 +57,25 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
   const configuredCount = useMemo(() => Object.values(connected).filter(Boolean).length, [connected]);
   const verifiedCount = useMemo(() => Object.values(verification).filter((result) => result?.ok).length, [verification]);
 
-  const updateField = (key, value) => {
-    setForm((current) => ({ ...current, [key]: value }));
+  const replaceVerification = (next) => {
+    setVerification(next);
+    onVerificationChange(next);
+  };
+
+  const updateVerification = (platform, result) => {
     setVerification((current) => {
-      const platform = PLATFORMS.find((item) => item.tokenKey === key || item.targetKey === key)?.id;
-      if (!platform || !current[platform]) return current;
       const next = { ...current };
-      delete next[platform];
+      if (result) next[platform] = result;
+      else delete next[platform];
+      onVerificationChange(next);
       return next;
     });
+  };
+
+  const updateField = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+    const platform = PLATFORMS.find((item) => item.tokenKey === key || item.targetKey === key)?.id;
+    if (platform) updateVerification(platform, null);
   };
 
   const save = () => {
@@ -80,7 +94,7 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
   const clear = () => {
     clearPlatformCredentials();
     setForm(emptyCredentials);
-    setVerification({});
+    replaceVerification({});
     onChange(emptyCredentials);
     setNotice({ type: 'success', text: 'Đã xóa toàn bộ thông tin kết nối khỏi phiên trình duyệt.' });
   };
@@ -95,11 +109,7 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
     };
     const saved = savePlatformCredentials(next);
     setForm(saved);
-    setVerification((current) => {
-      const copy = { ...current };
-      delete copy[platform];
-      return copy;
-    });
+    updateVerification(platform, null);
     onChange(saved);
     setNotice({ type: 'success', text: `Đã ngắt kết nối ${config.label}.` });
   };
@@ -109,7 +119,7 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
     setNotice(null);
     try {
       const result = await verifyPlatformConnection(platform, form);
-      setVerification((current) => ({ ...current, [platform]: result }));
+      updateVerification(platform, result);
       setNotice({
         type: result.ok ? 'success' : 'error',
         text: result.ok
@@ -118,7 +128,15 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
       });
       if (result.ok) save();
     } catch (error) {
-      setNotice({ type: 'error', text: error?.message || 'Không thể kiểm tra kết nối.' });
+      const result = {
+        platform,
+        ok: false,
+        account: null,
+        message: error?.message || 'Không thể kiểm tra kết nối.',
+        checkedAt: new Date().toISOString(),
+      };
+      updateVerification(platform, result);
+      setNotice({ type: 'error', text: result.message });
     } finally {
       setChecking('');
     }
@@ -129,10 +147,13 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
     setNotice(null);
     try {
       const results = await verifyAllPlatformConnections(form);
-      setVerification(results);
-      const configuredResults = PLATFORMS
-        .filter((platform) => connected[platform.id])
-        .map((platform) => results[platform.id]);
+      const configuredPlatforms = PLATFORMS.filter((platform) => connected[platform.id]);
+      const configuredVerification = Object.fromEntries(
+        configuredPlatforms.map((platform) => [platform.id, results[platform.id]]),
+      );
+      replaceVerification(configuredVerification);
+
+      const configuredResults = configuredPlatforms.map((platform) => results[platform.id]);
       const passed = configuredResults.filter((result) => result?.ok).length;
       const failed = configuredResults.length - passed;
       if (passed > 0) save();
