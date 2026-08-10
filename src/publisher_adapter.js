@@ -78,12 +78,22 @@ const mockResult = (platform, post, credentials) => {
   };
 };
 
+const resolveTargetId = (platform, post, credentials) => {
+  const explicit = String(post?.targetIds?.[platform] || '').trim();
+  if (explicit) return explicit;
+  if (platform === 'facebook') return String(credentials.facebook_page_id || '').trim();
+  if (platform === 'instagram') return String(credentials.instagram_user_id || '').trim();
+  return '';
+};
+
 const livePublish = async (platform, post, credentials) => {
   if (platform === 'facebook') {
     if (!credentials.facebook_token) throw new Error('Thiếu Facebook access token.');
+    const pageId = resolveTargetId(platform, post, credentials);
+    if (!pageId) throw new Error('Thiếu Facebook Page ID. Hãy cấu hình tại mục Kết nối.');
     const api = new FacebookAPI(credentials.facebook_token);
     return api.publishPost(
-      post.targetIds?.facebook || 'me',
+      pageId,
       post.content,
       { imageUrl: post.imageUrl || undefined },
     );
@@ -92,9 +102,11 @@ const livePublish = async (platform, post, credentials) => {
   if (platform === 'instagram') {
     if (!credentials.instagram_token) throw new Error('Thiếu Instagram access token.');
     if (!post.imageUrl) throw new Error('Instagram yêu cầu URL ảnh.');
+    const instagramUserId = resolveTargetId(platform, post, credentials);
+    if (!instagramUserId) throw new Error('Thiếu Instagram Business/Creator ID. Hãy cấu hình tại mục Kết nối.');
     const api = new InstagramAPI(credentials.instagram_token);
     return api.publishPost(
-      post.targetIds?.instagram || 'me',
+      instagramUserId,
       post.imageUrl,
       post.content,
     );
