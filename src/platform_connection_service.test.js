@@ -1,10 +1,15 @@
 import { verifyPlatformConnection } from './platform_connection_service';
-import { FacebookAPI, InstagramAPI, TikTokAPI } from './api_handler';
+import { FacebookAPI, InstagramAPI } from './api_handler';
+import { TikTokContentPostingAPI } from './tiktok_content_posting';
 
 jest.mock('./api_handler', () => ({
   FacebookAPI: jest.fn(),
   InstagramAPI: jest.fn(),
   TikTokAPI: jest.fn(),
+}));
+
+jest.mock('./tiktok_content_posting', () => ({
+  TikTokContentPostingAPI: jest.fn(),
 }));
 
 describe('platform connection verification', () => {
@@ -43,12 +48,16 @@ describe('platform connection verification', () => {
     expect(result.message).toMatch(/không trả về đúng Facebook Page ID/i);
   });
 
-  test('verifies Instagram and TikTok through their account APIs', async () => {
+  test('verifies Instagram and TikTok posting capability', async () => {
     InstagramAPI.mockImplementation(() => ({
       searchAccounts: jest.fn().mockResolvedValue([{ id: 'ig_ig-1', sourceId: 'ig-1', name: 'instagram' }]),
     }));
-    TikTokAPI.mockImplementation(() => ({
-      getUserInfo: jest.fn().mockResolvedValue({ id: 'tt-1', name: 'tiktok' }),
+    TikTokContentPostingAPI.mockImplementation(() => ({
+      getCreatorInfo: jest.fn().mockResolvedValue({
+        id: 'creator-1',
+        name: 'tiktok',
+        privacyLevelOptions: ['SELF_ONLY'],
+      }),
     }));
 
     const instagram = await verifyPlatformConnection('instagram', {
@@ -59,6 +68,17 @@ describe('platform connection verification', () => {
 
     expect(instagram.ok).toBe(true);
     expect(tiktok.ok).toBe(true);
+    expect(TikTokContentPostingAPI).toHaveBeenCalledWith('tt-token');
+  });
+
+  test('reports TikTok video.publish capability errors', async () => {
+    TikTokContentPostingAPI.mockImplementation(() => ({
+      getCreatorInfo: jest.fn().mockRejectedValue(new Error('scope_not_authorized')),
+    }));
+
+    const result = await verifyPlatformConnection('tiktok', { tiktok_token: 'tt-token' });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/scope_not_authorized/i);
   });
 
   test('rejects an Instagram token that resolves to a different Business/Creator ID', async () => {
