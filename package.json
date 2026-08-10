@@ -28,6 +28,7 @@
     "linkedin:server": "node server/linkedin-server.js",
     "dhp:media-server": "node server/dhp-media-ingress.js",
     "dhp:publishing-control": "node server/publishing-control-server.js",
+    "dhp:publishing-worker": "node server/publishing-worker.js",
     "dhp:telegram-control": "node server/telegram-control.js",
     "dhp:ai-content": "node server/ai-content-server.js"
   },

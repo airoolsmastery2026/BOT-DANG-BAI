@@ -31,6 +31,17 @@ const normalizeTargetIds = (value) => {
   };
 };
 
+function isPlatformApiError(errorField) {
+  if (!errorField) return false;
+  if (typeof errorField === 'string') return !['ok', '0'].includes(errorField.trim().toLowerCase());
+  if (typeof errorField === 'number') return errorField !== 0;
+  if (typeof errorField !== 'object' || Array.isArray(errorField)) return true;
+  const code = errorField.code ?? errorField.error_code;
+  if (code === undefined || code === null || code === '') return true;
+  if (typeof code === 'number') return code !== 0;
+  return !['ok', '0'].includes(String(code).trim().toLowerCase());
+}
+
 function buildIdempotencyKey(input) {
   const stable = JSON.stringify({
     campaignId: clean(input.campaignId, 200),
@@ -118,15 +129,18 @@ function getDueJobs(jobs, { now = Date.now(), limit = 50 } = {}) {
 
 function markPublishing(job, { now = Date.now() } = {}) {
   if (job.status !== JOB_STATUS.SCHEDULED) throw new Error('Chỉ job scheduled mới được chuyển sang publishing.');
-  if (job.attemptCount >= MAX_ATTEMPTS) {
+  const pendingPlatforms = job.platforms.filter((platform) => job.results[platform]?.success !== true);
+  const pollingOnly = pendingPlatforms.length > 0
+    && pendingPlatforms.every((platform) => job.results[platform]?.pending === true);
+  if (!pollingOnly && job.attemptCount >= MAX_ATTEMPTS) {
     return markDeadLetter(job, { now, reason: 'Đã vượt số lần thử tối đa.' });
   }
   const timestamp = new Date(now).toISOString();
   return {
     ...job,
     status: JOB_STATUS.PUBLISHING,
-    attemptCount: job.attemptCount + 1,
-    pendingPlatforms: job.platforms.filter((platform) => job.results[platform]?.success !== true),
+    attemptCount: pollingOnly ? job.attemptCount : job.attemptCount + 1,
+    pendingPlatforms,
     lastAttemptAt: timestamp,
     updatedAt: timestamp,
   };
@@ -140,7 +154,9 @@ function mergePublishResults(job, results, { now = Date.now() } = {}) {
   };
   const pendingPlatforms = job.platforms.filter((platform) => merged[platform]?.success !== true);
   const allSucceeded = pendingPlatforms.length === 0;
-  const exhausted = !allSucceeded && job.attemptCount >= MAX_ATTEMPTS;
+  const pendingOnly = pendingPlatforms.length > 0
+    && pendingPlatforms.every((platform) => merged[platform]?.pending === true);
+  const exhausted = !allSucceeded && !pendingOnly && job.attemptCount >= MAX_ATTEMPTS;
 
   return {
     ...job,
@@ -170,8 +186,10 @@ function retryJob(job, { now = Date.now(), delayMs = 60_000 } = {}) {
   if (![JOB_STATUS.FAILED, JOB_STATUS.PUBLISHING].includes(job.status)) {
     throw new Error('Chỉ job failed/publishing mới được retry.');
   }
-  if (job.attemptCount >= MAX_ATTEMPTS) return markDeadLetter(job, { now, reason: 'Đã vượt số lần thử tối đa.' });
   const pendingPlatforms = job.platforms.filter((platform) => job.results[platform]?.success !== true);
+  const pollingOnly = pendingPlatforms.length > 0
+    && pendingPlatforms.every((platform) => job.results[platform]?.pending === true);
+  if (!pollingOnly && job.attemptCount >= MAX_ATTEMPTS) return markDeadLetter(job, { now, reason: 'Đã vượt số lần thử tối đa.' });
   if (!pendingPlatforms.length) {
     return { ...job, status: JOB_STATUS.PUBLISHED, publishedAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString() };
   }
@@ -219,6 +237,7 @@ module.exports = {
   assertNoDuplicate,
   buildIdempotencyKey,
   getDueJobs,
+  isPlatformApiError,
   markDeadLetter,
   markPublishing,
   mergePublishResults,
