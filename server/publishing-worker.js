@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
@@ -7,6 +8,7 @@ const {
   JOB_STATUS,
   assertNoDuplicate,
   getDueJobs,
+  isPlatformApiError,
   markDeadLetter,
   markPublishing,
   mergePublishResults,
@@ -81,8 +83,9 @@ const json = (res, status, body) => {
 };
 
 const authorized = (req) => {
-  const expected = `Bearer ${API_TOKEN}`;
-  return String(req.headers.authorization || '') === expected;
+  const provided = Buffer.from(String(req.headers.authorization || ''));
+  const expected = Buffer.from(`Bearer ${API_TOKEN}`);
+  return provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
 };
 
 const readBody = (req) => new Promise((resolve, reject) => {
@@ -107,7 +110,7 @@ const readBody = (req) => new Promise((resolve, reject) => {
 const readRemote = async (response, fallback) => {
   const body = await response.json().catch(() => ({}));
   const platformError = body?.error;
-  if (!response.ok || platformError) {
+  if (!response.ok || isPlatformApiError(platformError)) {
     const error = new Error(platformError?.message || fallback || `HTTP ${response.status}`);
     error.code = platformError?.code || platformError?.error_code || `HTTP_${response.status}`;
     error.retryable = response.status === 429 || response.status >= 500;
@@ -184,7 +187,56 @@ const getTikTokCreator = async (credentials) => {
   return readRemote(response, 'TikTok creator info failed.');
 };
 
+const getTikTokPostStatus = async (credentials, publishId) => {
+  const response = await fetch('https://open.tiktokapis.com/v2/post/publish/status/fetch/', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${credentials.accessToken}`,
+      'Content-Type': 'application/json; charset=UTF-8',
+    },
+    body: JSON.stringify({ publish_id: publishId }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  return readRemote(response, 'TikTok status check failed.');
+};
+
 const publishTikTok = async (job, credentials) => {
+  const previous = job.results?.tiktok;
+  if (previous?.pending === true && previous.externalPostId) {
+    const data = await getTikTokPostStatus(credentials, previous.externalPostId);
+    const remoteStatus = String(data?.data?.status || '').trim();
+
+    if (remoteStatus === 'PUBLISH_COMPLETE') {
+      const postIds = data?.data?.publicaly_available_post_id || data?.data?.publicly_available_post_id || [];
+      return {
+        success: true,
+        pending: false,
+        publishId: previous.externalPostId,
+        externalPostId: Array.isArray(postIds) && postIds.length ? String(postIds[0]) : previous.externalPostId,
+        remoteStatus,
+        publishedAt: new Date().toISOString(),
+      };
+    }
+
+    if (remoteStatus === 'FAILED') {
+      const reason = String(data?.data?.fail_reason || 'TikTok processing failed.');
+      const error = new Error(`TikTok publish failed: ${reason}`);
+      error.code = reason;
+      error.retryable = reason === 'internal';
+      throw error;
+    }
+
+    return {
+      success: false,
+      pending: true,
+      retryable: true,
+      publishId: previous.externalPostId,
+      externalPostId: previous.externalPostId,
+      remoteStatus: remoteStatus || 'PROCESSING',
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
   if (!/^https?:\/\//i.test(job.videoUrl)) throw new Error('TikTok cần video URL HTTP/HTTPS công khai.');
   const creator = await getTikTokCreator(credentials);
   const privacy = Array.isArray(creator?.data?.privacy_level_options)
@@ -205,7 +257,17 @@ const publishTikTok = async (job, credentials) => {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const data = await readRemote(response, 'TikTok publish failed.');
-  return { success: true, externalPostId: data?.data?.publish_id || null, publishedAt: new Date().toISOString() };
+  const publishId = String(data?.data?.publish_id || '').trim();
+  if (!publishId) throw new Error('TikTok không trả về publish_id để theo dõi trạng thái.');
+  return {
+    success: false,
+    pending: true,
+    retryable: true,
+    publishId,
+    externalPostId: publishId,
+    remoteStatus: 'INITIALIZED',
+    attemptedAt: new Date().toISOString(),
+  };
 };
 
 const verifyPlatform = async (platform) => {
@@ -249,7 +311,18 @@ const publishPlatform = async (platform, job) => {
     if (platform === 'tiktok') return await publishTikTok(job, credentials);
     throw new Error(`Nền tảng ${platform} chưa được worker hỗ trợ.`);
   } catch (error) {
-    return resultFailure(error);
+    const failure = resultFailure(error);
+    const previous = job.results?.[platform];
+    if (platform === 'tiktok' && previous?.pending === true && previous.externalPostId && failure.retryable) {
+      return {
+        ...failure,
+        pending: true,
+        publishId: previous.externalPostId,
+        externalPostId: previous.externalPostId,
+        remoteStatus: previous.remoteStatus || 'STATUS_CHECK_RETRY',
+      };
+    }
+    return failure;
   }
 };
 
