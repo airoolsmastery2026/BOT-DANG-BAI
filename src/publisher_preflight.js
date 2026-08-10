@@ -23,6 +23,9 @@ const resolveTargetId = (post, credentials, platform) => {
   return '';
 };
 
+const requiresVerification = (credentials) => credentials.__requireVerification === true;
+const isVerified = (credentials, platform) => credentials.__verifiedPlatforms?.[platform] === true;
+
 export const validatePostForPublishing = (post, credentials = {}) => {
   const issues = [];
   const pendingPlatforms = getPendingPlatforms(post);
@@ -48,6 +51,15 @@ export const validatePostForPublishing = (post, credentials = {}) => {
     const tokenKey = TOKEN_KEY[platform];
     if (!mockMode && (!tokenKey || !String(credentials[tokenKey] || '').trim())) {
       issues.push(createIssue(post, platform, 'missing_token', `Thiếu token ${platform}.`));
+    }
+
+    if (!mockMode && requiresVerification(credentials) && !isVerified(credentials, platform)) {
+      issues.push(createIssue(
+        post,
+        platform,
+        'unverified_account',
+        `Tài khoản ${platform} chưa được kiểm tra thành công trong phiên này. Mở mục Kết nối để kiểm tra.`,
+      ));
     }
 
     if (!mockMode && platform === 'instagram' && !String(post.imageUrl || '').trim()) {
