@@ -10,6 +10,7 @@ import { inspectQueueHealth } from './queue_health';
 import { inspectPublisherPreflight } from './publisher_preflight';
 import { MOCK_SCENARIO } from './publisher_adapter';
 import { getConnectedPlatforms } from './platform_credentials';
+import { getPublishingHealth } from './publishing_control_api';
 
 const MOCK_SCENARIO_OPTIONS = [
   [MOCK_SCENARIO.SUCCESS, 'Thành công'],
@@ -25,6 +26,7 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [healthReport, setHealthReport] = useState(null);
   const [preflightReport, setPreflightReport] = useState(null);
+  const [schedulerState, setSchedulerState] = useState(null);
   const [mockScenario, setMockScenario] = useState(MOCK_SCENARIO.SUCCESS);
 
   const summary = useMemo(() => getQueueSummary(), [refreshKey]);
@@ -41,6 +43,14 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
   const refreshDiagnostics = (credentials = apiCredentials) => {
     setHealthReport(inspectQueueHealth({ credentials }));
     setPreflightReport(inspectPublisherPreflight({ credentials }));
+  };
+
+  const requireLivePublishingEnabled = async () => {
+    const health = await getPublishingHealth();
+    const scheduler = health?.scheduler || null;
+    setSchedulerState(scheduler);
+    if (scheduler?.paused) throw new Error('Publishing Scheduler đang tạm dừng bởi Control Plane. Hãy Resume trước khi đăng LIVE.');
+    return scheduler;
   };
 
   const runPublisher = async (credentials, modeLabel) => {
@@ -72,6 +82,7 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
     setAction('process');
     setNotice(null);
     try {
+      await requireLivePublishingEnabled();
       await runPublisher(apiCredentials, 'LIVE');
     } catch (error) {
       setNotice({ type: 'error', text: error?.message || 'Không thể xử lý hàng đợi local.' });
@@ -125,17 +136,26 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
     }
   };
 
-  const runHealthCheck = () => {
+  const runHealthCheck = async () => {
     setAction('health');
     setNotice(null);
     try {
       const report = inspectQueueHealth({ credentials: apiCredentials });
       const preflight = inspectPublisherPreflight({ credentials: apiCredentials });
+      let scheduler = null;
+      try {
+        const controlHealth = await getPublishingHealth();
+        scheduler = controlHealth?.scheduler || null;
+      } catch {
+        scheduler = null;
+      }
+      setSchedulerState(scheduler);
       setHealthReport(report);
       setPreflightReport(preflight);
+      const schedulerMessage = scheduler ? ` Scheduler: ${scheduler.paused ? 'PAUSED' : 'RUNNING'}.` : ' Publishing Control chưa kết nối.';
       setNotice({
-        type: report.healthy && preflight.blockedCount === 0 ? 'success' : 'error',
-        text: `Sức khỏe: ${report.summary.error} lỗi, ${report.summary.warning} cảnh báo. Preflight: ${preflight.runnableCount} chạy được, ${preflight.blockedCount} bị chặn.`,
+        type: report.healthy && preflight.blockedCount === 0 && scheduler?.paused !== true ? 'success' : 'error',
+        text: `Sức khỏe: ${report.summary.error} lỗi, ${report.summary.warning} cảnh báo. Preflight: ${preflight.runnableCount} chạy được, ${preflight.blockedCount} bị chặn.${schedulerMessage}`,
       });
     } catch (error) {
       setNotice({ type: 'error', text: error?.message || 'Không thể kiểm tra sức khỏe hàng đợi.' });
@@ -153,6 +173,7 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
             <h2 className="mt-1 text-xl font-bold">Điều khiển xử lý hàng đợi</h2>
             <p className="mt-1 text-sm text-gray-400">{summary.scheduled} chờ · {summary.due} đến hạn · {summary.failed} thất bại · {summary.dead_letter || 0} Dead Letter · {connectedAccounts}/3 tài khoản sẵn sàng</p>
             <p className="mt-1 text-xs text-emerald-300">MOCK miễn phí: không cần token, không gửi dữ liệu tới mạng xã hội.</p>
+            {schedulerState && <p className={`mt-1 text-xs ${schedulerState.paused ? 'text-amber-300' : 'text-emerald-300'}`}>Remote control: {schedulerState.paused ? 'PAUSED' : 'RUNNING'}{schedulerState.updatedBy ? ` · ${schedulerState.updatedBy}` : ''}</p>}
             {preflightReport && <p className="mt-1 text-xs text-sky-300">Preflight {preflightReport.mode || 'live'}: {preflightReport.runnableCount} sẵn sàng · {preflightReport.blockedCount} bị chặn</p>}
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -163,7 +184,7 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
             <button type="button" onClick={processMock} disabled={Boolean(action)} className="inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold hover:bg-cyan-600 disabled:opacity-40">
               {action === 'mock' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />} Chạy MOCK
             </button>
-            <button type="button" onClick={processDue} disabled={Boolean(action)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold hover:bg-emerald-500 disabled:opacity-40">
+            <button type="button" onClick={processDue} disabled={Boolean(action) || schedulerState?.paused === true} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold hover:bg-emerald-500 disabled:opacity-40">
               {action === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Đăng LIVE
             </button>
             <button type="button" onClick={retryAll} disabled={Boolean(action) || summary.failed === 0} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold hover:bg-amber-500 disabled:opacity-40">
