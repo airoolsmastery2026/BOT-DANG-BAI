@@ -1,4 +1,5 @@
 import { analyzeCampaignCommand } from './campaign_command_analyzer';
+import { inspectMediaPromptReadiness } from './campaign_media_prompt_engine';
 import { attachScheduleToWorkflow, evaluateScheduleConflicts } from './campaign_schedule_planner';
 import { buildCampaignWorkflow, validateWorkflowForScheduling } from './campaign_workflow';
 
@@ -56,12 +57,16 @@ export function evaluateCampaignReadiness(workflow) {
   const blockingErrors = [...scheduling.errors];
   const mediaJobs = workflow?.channels?.flatMap((channel) => channel.jobs || []) || [];
   const schedulePlan = workflow?.schedulePlan;
+  const mediaReadiness = inspectMediaPromptReadiness(workflow);
 
   if (mediaJobs.some((job) => job.type === 'image' && !job.renderInput)) {
     blockingErrors.push('Có tác vụ ảnh chưa có render input.');
   }
   if (mediaJobs.some((job) => job.type === 'video' && !Array.isArray(job.storyboard))) {
     blockingErrors.push('Có tác vụ video chưa có storyboard.');
+  }
+  if (!mediaReadiness.ready) {
+    blockingErrors.push(...mediaReadiness.errors);
   }
   if (!schedulePlan?.valid || !schedulePlan?.slots?.length) {
     blockingErrors.push(...(schedulePlan?.errors || ['Chiến dịch chưa có kế hoạch lịch đăng hợp lệ.']));
@@ -79,5 +84,6 @@ export function evaluateCampaignReadiness(workflow) {
     errors: [...new Set(blockingErrors)],
     warnings: [...new Set(warnings)],
     requiresApproval: workflow?.campaign?.approvalMode === 'review',
+    media: mediaReadiness,
   };
 }
