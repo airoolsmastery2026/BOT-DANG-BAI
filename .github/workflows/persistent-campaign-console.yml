@@ -1,0 +1,33 @@
+name: Persistent Campaign Console CI
+
+on:
+  pull_request:
+    paths:
+      - 'public/persistent-campaign.html'
+      - 'server/persistent-campaign-console.test.js'
+      - '.github/workflows/persistent-campaign-console.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'public/persistent-campaign.html'
+      - 'server/persistent-campaign-console.test.js'
+      - '.github/workflows/persistent-campaign-console.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: persistent-campaign-console-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate campaign handoff and secret boundary
+        run: node --test server/persistent-campaign-console.test.js
