@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>DHP Campaign JSON Review</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background: #020617; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #172554 0, #020617 45%); }
+    main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0 64px; }
+    h1, h2, h3, p { margin-top: 0; }
+    .eyebrow { color: #c4b5fd; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .16em; }
+    .muted { color: #94a3b8; }
+    .card { border: 1px solid rgba(255,255,255,.1); background: rgba(15,23,42,.84); border-radius: 18px; padding: 18px; box-shadow: 0 18px 50px rgba(0,0,0,.24); }
+    .grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; }
+    .stack { display: grid; gap: 10px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    button { border: 0; border-radius: 10px; padding: 10px 13px; background: #7c3aed; color: white; font: inherit; font-weight: 800; cursor: pointer; }
+    button.secondary { background: #334155; }
+    button.good { background: #059669; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .campaign { width: 100%; text-align: left; background: #0f172a; border: 1px solid #1e293b; }
+    .campaign.active { border-color: #8b5cf6; box-shadow: 0 0 0 2px rgba(139,92,246,.15); }
+    .campaign small { display: block; margin-top: 5px; color: #94a3b8; font-weight: 500; }
+    .badge { display: inline-flex; border-radius: 999px; padding: 4px 8px; background: #1e293b; color: #cbd5e1; font-size: 12px; }
+    pre { margin: 0; min-height: 520px; max-height: 70vh; overflow: auto; white-space: pre-wrap; word-break: break-word; background: #020617; border: 1px solid #1e293b; border-radius: 12px; padding: 16px; color: #dbeafe; font-size: 12px; line-height: 1.55; }
+    .notice { margin: 16px 0; padding: 11px 13px; border-radius: 12px; font-size: 14px; }
+    .notice.ok { border: 1px solid rgba(16,185,129,.35); background: rgba(16,185,129,.1); color: #a7f3d0; }
+    .notice.info { border: 1px solid rgba(59,130,246,.35); background: rgba(59,130,246,.1); color: #bfdbfe; }
+    .notice.error { border: 1px solid rgba(239,68,68,.35); background: rgba(239,68,68,.1); color: #fecaca; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } pre { min-height: 380px; } }
+  </style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Đại Hải Phát · Campaign Review</p>
+  <h1>Campaign JSON Review & Export</h1>
+  <p class="muted">Trang này tự tìm campaign workflow trong localStorage của BOT ĐĂNG BÀI, loại bỏ field có dấu hiệu là secret/token trước khi hiển thị hoặc xuất file.</p>
+
+  <div class="row" style="margin-bottom:16px;">
+    <button id="scan">Quét chiến dịch</button>
+    <button id="copy" class="secondary" disabled>Sao chép JSON</button>
+    <button id="download" class="good" disabled>Tải campaign.json</button>
+  </div>
+
+  <div id="notice" class="notice info">Đang quét localStorage…</div>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Chiến dịch</h2>
+      <div id="campaigns" class="stack"><p class="muted">Chưa có dữ liệu.</p></div>
+    </section>
+
+    <section class="card">
+      <div class="row" style="justify-content:space-between; margin-bottom:12px;">
+        <div>
+          <h2 id="title">Chưa chọn chiến dịch</h2>
+          <div id="meta" class="row"></div>
+        </div>
+      </div>
+      <pre id="json">{}</pre>
+    </section>
+  </div>
+</main>
+<script>
+(() => {
+  const SECRET_KEY_PATTERN = /(token|secret|password|api[_-]?key|authorization|credential|refresh[_-]?token|access[_-]?token|private[_-]?key)/i;
+  const $ = (id) => document.getElementById(id);
+  const state = { campaigns: [], selected: null };
+
+  const sanitize = (value, depth = 0) => {
+    if (depth > 20) return '[depth-limit]';
+    if (Array.isArray(value)) return value.slice(0, 1000).map((item) => sanitize(item, depth + 1));
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !SECRET_KEY_PATTERN.test(key))
+      .map(([key, item]) => [key, sanitize(item, depth + 1)]));
+  };
+
+  const looksLikeWorkflow = (value) => Boolean(
+    value
+    && typeof value === 'object'
+    && value.campaign
+    && typeof value.campaign === 'object'
+    && String(value.campaign.id || '').trim()
+    && Array.isArray(value.channels)
+  );
+
+  const collectWorkflows = (value, results, sourceKey) => {
+    if (looksLikeWorkflow(value)) {
+      results.push({ workflow: value, sourceKey });
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => collectWorkflows(item, results, sourceKey));
+      return;
+    }
+    if (value && typeof value === 'object') {
+      Object.values(value).slice(0, 1000).forEach((item) => collectWorkflows(item, results, sourceKey));
+    }
+  };
+
+  const scan = () => {
+    const found = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      try {
+        const value = JSON.parse(localStorage.getItem(key));
+        collectWorkflows(value, found, key);
+      } catch {}
+    }
+
+    const unique = new Map();
+    found.forEach(({ workflow, sourceKey }) => {
+      const id = String(workflow.campaign.id).trim();
+      const previous = unique.get(id);
+      const currentTime = new Date(workflow.updatedAt || workflow.savedAt || workflow.createdAt || 0).getTime();
+      const previousTime = previous ? new Date(previous.workflow.updatedAt || previous.workflow.savedAt || previous.workflow.createdAt || 0).getTime() : -1;
+      if (!previous || currentTime >= previousTime) unique.set(id, { workflow, sourceKey });
+    });
+
+    state.campaigns = Array.from(unique.values())
+      .sort((a, b) => String(a.workflow.campaign.topic || a.workflow.campaign.id).localeCompare(String(b.workflow.campaign.topic || b.workflow.campaign.id), 'vi'));
+    state.selected = null;
+    renderList();
+    renderSelected();
+    setNotice(state.campaigns.length ? 'ok' : 'info', state.campaigns.length ? `Tìm thấy ${state.campaigns.length} chiến dịch.` : 'Không tìm thấy workflow campaign trong localStorage của origin hiện tại.');
+  };
+
+  const setNotice = (type, text) => {
+    $('notice').className = `notice ${type}`;
+    $('notice').textContent = text;
+  };
+
+  const renderList = () => {
+    const root = $('campaigns');
+    if (!state.campaigns.length) {
+      root.innerHTML = '<p class="muted">Chưa có chiến dịch.</p>';
+      return;
+    }
+    root.replaceChildren(...state.campaigns.map((entry, index) => {
+      const workflow = entry.workflow;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `campaign${state.selected === index ? ' active' : ''}`;
+      const title = document.createElement('strong');
+      title.textContent = workflow.campaign.topic || workflow.campaign.id;
+      const meta = document.createElement('small');
+      meta.textContent = `${workflow.workflowStatus || 'unknown'} · ${(workflow.channels || []).map((channel) => channel.platform).join(', ') || 'no channels'}`;
+      button.append(title, meta);
+      button.addEventListener('click', () => { state.selected = index; renderList(); renderSelected(); });
+      return button;
+    }));
+  };
+
+  const selectedExport = () => {
+    if (state.selected === null) return null;
+    const entry = state.campaigns[state.selected];
+    return {
+      exportVersion: 1,
+      exportedAt: new Date().toISOString(),
+      source: 'BOT-DANG-BAI',
+      sourceStorageKey: entry.sourceKey,
+      workflow: sanitize(entry.workflow),
+    };
+  };
+
+  const renderSelected = () => {
+    const payload = selectedExport();
+    $('copy').disabled = !payload;
+    $('download').disabled = !payload;
+    if (!payload) {
+      $('title').textContent = 'Chưa chọn chiến dịch';
+      $('meta').replaceChildren();
+      $('json').textContent = '{}';
+      return;
+    }
+
+    const workflow = payload.workflow;
+    $('title').textContent = workflow.campaign.topic || workflow.campaign.id;
+    $('meta').replaceChildren(...[
+      workflow.workflowStatus || 'unknown',
+      `${workflow.channels.length} platforms`,
+      `${workflow.schedulePlan?.slots?.length || 0} slots`,
+    ].map((text) => {
+      const span = document.createElement('span');
+      span.className = 'badge';
+      span.textContent = text;
+      return span;
+    }));
+    $('json').textContent = JSON.stringify(payload, null, 2);
+  };
+
+  const safeFilename = (workflow) => {
+    const raw = String(workflow?.campaign?.id || 'campaign').replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 80);
+    return `${raw || 'campaign'}.json`;
+  };
+
+  $('scan').addEventListener('click', scan);
+  $('copy').addEventListener('click', async () => {
+    const payload = selectedExport();
+    if (!payload) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      setNotice('ok', 'Đã sao chép JSON đã loại secret vào clipboard.');
+    } catch {
+      setNotice('error', 'Trình duyệt không cho phép ghi clipboard. Bạn vẫn có thể chọn JSON và sao chép thủ công.');
+    }
+  });
+  $('download').addEventListener('click', () => {
+    const payload = selectedExport();
+    if (!payload) return;
+    const blob = new Blob([JSON.stringify(payload.workflow, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = safeFilename(payload.workflow);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setNotice('ok', 'Đã tạo file campaign JSON đã loại secret.');
+  });
+
+  scan();
+})();
+</script>
+</body>
+</html>
