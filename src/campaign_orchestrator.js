@@ -1,3 +1,4 @@
+import { appendWorkflowAuditEvent } from './campaign_audit_log';
 import { generateCampaignContent } from './campaign_content_engine';
 import {
   enrichWorkflowMediaPrompts,
@@ -49,6 +50,15 @@ function updateStep(steps, id, patch) {
 
 function countWords(value) {
   return String(value || '').trim().split(/\s+/).filter(Boolean).length;
+}
+
+function safeAudit(workflow, event, options = {}) {
+  try {
+    if (!workflow?.campaign?.id) return;
+    appendWorkflowAuditEvent(workflow, event, options);
+  } catch {
+    // Audit must never break the campaign execution path.
+  }
 }
 
 export function createCampaignRun(command, options = {}) {
@@ -128,6 +138,16 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
         scheduleSlotCount: workflow.schedulePlan?.slots?.length || 0,
       },
     };
+    safeAudit(workflow, 'campaign.planned', {
+      runId: run.runId,
+      status: 'completed',
+      sequence: 'plan',
+      details: {
+        platforms: workflow.channels.map((channel) => channel.platform),
+        durationDays: workflow.campaign.durationDays,
+        postsPerDay: workflow.campaign.postsPerDay,
+      },
+    });
     completeStep('plan');
 
     startStep('content', CAMPAIGN_RUN_STATUS.GENERATING_CONTENT);
@@ -145,6 +165,12 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
         contentWordCount,
       },
     };
+    safeAudit(workflowWithContent, 'campaign.content_generated', {
+      runId: run.runId,
+      status: 'completed',
+      sequence: 'content',
+      details: { generatedContentCount: workflowWithContent.channels.length, contentWordCount },
+    });
     completeStep('content');
 
     startStep('media', CAMPAIGN_RUN_STATUS.GENERATING_MEDIA);
@@ -174,6 +200,12 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
         channelCount: workflowWithMedia.channels.length,
       },
     };
+    safeAudit(workflowWithMedia, 'campaign.media_prepared', {
+      runId: run.runId,
+      status: 'completed',
+      sequence: 'media',
+      details: { mediaJobCount, imagePromptCount, storyboardSceneCount },
+    });
     completeStep('media');
 
     startStep('validate', CAMPAIGN_RUN_STATUS.VALIDATING);
@@ -186,6 +218,16 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
       media: mediaReadiness,
     };
     run = { ...run, readiness: combinedReadiness };
+    safeAudit(run.workflow, 'campaign.validated', {
+      runId: run.runId,
+      status: combinedReadiness.ready ? 'ready' : 'blocked',
+      sequence: 'validate',
+      details: {
+        ready: combinedReadiness.ready,
+        errorCount: combinedReadiness.errors.length,
+        warningCount: combinedReadiness.warnings?.length || 0,
+      },
+    });
     if (combinedReadiness.errors.length) throw new Error(combinedReadiness.errors.join(' '));
     if (run.workflow.channels.some((channel) => !channel.content?.text?.trim())) {
       throw new Error('Có kênh chưa tạo được nội dung.');
@@ -205,6 +247,12 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
     };
     const savedWorkflow = saveCampaignWorkflow(workflowToSave) || workflowToSave;
     run = { ...run, workflow: savedWorkflow };
+    safeAudit(savedWorkflow, 'campaign.persisted', {
+      runId: run.runId,
+      status: savedWorkflow.workflowStatus,
+      sequence: 'persist',
+      details: { workflowStatus: savedWorkflow.workflowStatus, mode: run.mode },
+    });
     completeStep('persist');
 
     run = {
@@ -218,6 +266,12 @@ export async function executeCampaignRun(command, options = {}, onProgress = () 
   } catch (error) {
     const message = error?.message || 'Không thể chạy chiến dịch.';
     const runningStep = run.steps.find((step) => step.status === 'running');
+    safeAudit(run.workflow, 'campaign.failed', {
+      runId: run.runId,
+      status: 'failed',
+      sequence: runningStep?.id || 'unknown',
+      details: { step: runningStep?.id || null, message },
+    });
     run = {
       ...run,
       status: CAMPAIGN_RUN_STATUS.FAILED,
