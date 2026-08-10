@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>DHP Worker · LinkedIn & Pinterest</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background: #020617; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #172554 0, #020617 45%); }
+    main { width: min(980px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 64px; }
+    h1, h2, p { margin-top: 0; }
+    .eyebrow { color: #c4b5fd; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .16em; }
+    .muted { color: #94a3b8; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .card { border: 1px solid rgba(255,255,255,.1); background: rgba(15,23,42,.84); border-radius: 18px; padding: 18px; }
+    label { display: block; margin: 12px 0 6px; color: #cbd5e1; font-size: 13px; font-weight: 700; }
+    input, button, a.button { font: inherit; }
+    input { width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid #334155; background: #020617; color: white; }
+    button, a.button { border: 0; border-radius: 10px; padding: 10px 13px; font-weight: 800; color: white; background: #7c3aed; cursor: pointer; text-decoration: none; display: inline-flex; }
+    button.secondary, a.secondary { background: #334155; }
+    button.good { background: #059669; }
+    button.danger { background: #b91c1c; }
+    .row { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
+    .notice { margin: 16px 0; padding: 11px 13px; border-radius: 12px; background: #0f172a; border: 1px solid #334155; color: #cbd5e1; }
+    .notice.ok { color: #a7f3d0; border-color: rgba(16,185,129,.4); }
+    .notice.error { color: #fecaca; border-color: rgba(239,68,68,.4); }
+    .state { min-height: 22px; color: #94a3b8; font-size: 13px; }
+    code { color: #c4b5fd; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="row" style="justify-content:space-between;">
+    <div>
+      <p class="eyebrow">Persistent Worker · Extended Platforms</p>
+      <h1>LinkedIn + Pinterest</h1>
+      <p class="muted">Dùng cùng Worker URL/API token đã lưu trong phiên ở Worker Admin. Access token mạng xã hội được gửi vào encrypted vault của worker, không lưu trong localStorage.</p>
+    </div>
+    <div class="row"><a class="button secondary" href="/worker-admin.html">Worker Admin</a><a class="button secondary" href="/operator.html">Operator Hub</a></div>
+  </div>
+
+  <div id="notice" class="notice">Đang đọc cấu hình Worker từ session…</div>
+
+  <section class="grid">
+    <article class="card">
+      <h2>LinkedIn</h2>
+      <p id="linkedinState" class="state">Chưa kiểm tra</p>
+      <label for="linkedinToken">Access Token</label>
+      <input id="linkedinToken" type="password" autocomplete="off" />
+      <label for="linkedinAuthor">Author URN</label>
+      <input id="linkedinAuthor" autocomplete="off" placeholder="urn:li:organization:123456 hoặc urn:li:person:123456" />
+      <p class="muted">Worker hiện đăng organic text post bằng LinkedIn Posts API.</p>
+      <div class="row"><button data-action="save" data-platform="linkedin">Lưu mã hóa</button><button class="good" data-action="verify" data-platform="linkedin">Kiểm tra cấu hình</button><button class="danger" data-action="delete" data-platform="linkedin">Xóa</button></div>
+    </article>
+
+    <article class="card">
+      <h2>Pinterest</h2>
+      <p id="pinterestState" class="state">Chưa kiểm tra</p>
+      <label for="pinterestToken">Access Token</label>
+      <input id="pinterestToken" type="password" autocomplete="off" />
+      <label for="pinterestBoard">Board ID</label>
+      <input id="pinterestBoard" autocomplete="off" inputmode="numeric" placeholder="123456789012345678" />
+      <p class="muted">Worker tạo image Pin từ image URL công khai vào board đã chọn.</p>
+      <div class="row"><button data-action="save" data-platform="pinterest">Lưu mã hóa</button><button class="good" data-action="verify" data-platform="pinterest">Kiểm tra Board</button><button class="danger" data-action="delete" data-platform="pinterest">Xóa</button></div>
+    </article>
+  </section>
+</main>
+<script>
+(() => {
+  const SESSION_KEY = 'dhp_publishing_worker_admin';
+  const $ = (id) => document.getElementById(id);
+  const notice = $('notice');
+
+  const config = () => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) || '{}');
+      return { url: String(saved.url || '').trim().replace(/\/$/, ''), token: String(saved.token || '').trim() };
+    } catch { return { url: '', token: '' }; }
+  };
+
+  const setNotice = (type, text) => { notice.className = `notice ${type || ''}`; notice.textContent = text; };
+  const setState = (platform, text, ok = false) => { const el = $(`${platform}State`); el.textContent = text; el.style.color = ok ? '#6ee7b7' : '#94a3b8'; };
+
+  const request = async (path, options = {}) => {
+    const { url, token } = config();
+    if (!url || !token) throw new Error('Chưa lưu Worker URL/API token trong phiên. Mở Worker Admin trước.');
+    const response = await fetch(`${url}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.headers || {}),
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    return payload.data ?? payload;
+  };
+
+  const payload = (platform) => platform === 'linkedin'
+    ? { accessToken: $('linkedinToken').value.trim(), authorUrn: $('linkedinAuthor').value.trim() }
+    : { accessToken: $('pinterestToken').value.trim(), boardId: $('pinterestBoard').value.trim() };
+
+  const refresh = async () => {
+    const { url } = config();
+    if (!url) { setNotice('error', 'Chưa có Worker session. Mở Worker Admin và lưu Worker URL/API token.'); return; }
+    try {
+      const response = await fetch(`${url}/health`, { cache: 'no-store' });
+      const health = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(health.error || `HTTP ${response.status}`);
+      ['linkedin', 'pinterest'].forEach((platform) => {
+        const account = (health.accounts || []).find((item) => item.platform === platform);
+        setState(platform, account?.configured ? `Đã mã hóa · ${account.updatedAt ? new Date(account.updatedAt).toLocaleString('vi-VN') : ''}` : 'Chưa lưu trong vault');
+      });
+      setNotice('ok', `Worker ${health.paused ? 'PAUSED' : 'RUNNING'} · vault sẵn sàng.`);
+    } catch (error) { setNotice('error', error.message || 'Không thể kết nối Worker.'); }
+  };
+
+  document.addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const platform = button.dataset.platform;
+    try {
+      if (button.dataset.action === 'save') {
+        const data = await request(`/v1/accounts/${platform}`, { method: 'PUT', body: JSON.stringify(payload(platform)) });
+        $(`${platform}Token`).value = '';
+        setState(platform, `Đã mã hóa · ${new Date(data.updatedAt).toLocaleString('vi-VN')}`, true);
+        setNotice('ok', `${platform}: đã lưu credential vào encrypted worker vault.`);
+      }
+      if (button.dataset.action === 'verify') {
+        const data = await request(`/v1/accounts/${platform}/verify`, { method: 'POST' });
+        setState(platform, `✓ ${data.account?.name || data.account?.id || 'Hợp lệ'}`, true);
+        setNotice('ok', `${platform}: kiểm tra thành công.`);
+      }
+      if (button.dataset.action === 'delete') {
+        await request(`/v1/accounts/${platform}`, { method: 'DELETE' });
+        setState(platform, 'Đã xóa khỏi vault');
+        setNotice('ok', `${platform}: đã xóa credential.`);
+      }
+    } catch (error) { setNotice('error', error.message || 'Thao tác thất bại.'); }
+  });
+
+  void refresh();
+})();
+</script>
+</body>
+</html>

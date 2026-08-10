@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 
-const SUPPORTED_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok']);
+const SUPPORTED_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok', 'linkedin', 'pinterest']);
 const JOB_STATUS = Object.freeze({
   SCHEDULED: 'scheduled',
   PUBLISHING: 'publishing',

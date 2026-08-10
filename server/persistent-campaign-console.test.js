@@ -20,7 +20,7 @@ test('campaign console strips likely secret fields before campaign processing', 
 });
 
 test('persistent handoff only supports worker publisher platforms', () => {
-  assert.match(html, /new Set\(\['facebook', 'instagram', 'tiktok'\]\)/);
+  assert.match(html, /new Set\(\['facebook', 'instagram', 'tiktok', 'linkedin', 'pinterest'\]\)/);
   assert.match(html, /WORKER_PLATFORMS\.has\(platform\)/);
   assert.match(html, /skipped/);
 });
@@ -29,6 +29,7 @@ test('persistent handoff blocks unapproved and incomplete-media workflows', () =
   assert.match(html, /\['approved', 'scheduled'\]\.includes/);
   assert.match(html, /instagram: thiếu image URL/);
   assert.match(html, /tiktok: thiếu video URL/);
+  assert.match(html, /pinterest: thiếu image URL/);
 });
 
 test('campaign console uses stable SHA-256 idempotency and handles worker duplicates', () => {
@@ -41,5 +42,5 @@ test('campaign console uses stable SHA-256 idempotency and handles worker duplic
 test('campaign preview renders via textContent rather than injecting campaign HTML', () => {
   assert.match(html, /cell\.textContent = text/);
   assert.doesNotMatch(html, /innerHTML\s*=\s*.*job\./);
-  assert.doesNotMatch(html, /graph\.facebook\.com|open\.tiktokapis\.com/);
+  assert.doesNotMatch(html, /graph\.facebook\.com|open\.tiktokapis\.com|api\.linkedin\.com|api\.pinterest\.com/);
 });

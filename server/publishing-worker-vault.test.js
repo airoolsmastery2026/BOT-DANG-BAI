@@ -23,7 +23,23 @@ test('normalizes required credential fields per platform', () => {
     accessToken: 'token',
     pageId: 'page-1',
   });
+  assert.deepEqual(normalizeCredentials('linkedin', {
+    accessToken: ' li-token ',
+    authorUrn: ' urn:li:organization:12345 ',
+  }), {
+    accessToken: 'li-token',
+    authorUrn: 'urn:li:organization:12345',
+  });
+  assert.deepEqual(normalizeCredentials('pinterest', {
+    accessToken: ' pin-token ',
+    boardId: ' 987654321 ',
+  }), {
+    accessToken: 'pin-token',
+    boardId: '987654321',
+  });
   assert.throws(() => normalizeCredentials('instagram', { accessToken: 'token' }), /Business\/Creator ID/);
+  assert.throws(() => normalizeCredentials('linkedin', { accessToken: 'token', authorUrn: 'bad' }), /Author URN/);
+  assert.throws(() => normalizeCredentials('pinterest', { accessToken: 'token', boardId: 'bad' }), /Board ID/);
 });
 
 test('encrypts and decrypts JSON with authenticated encryption', () => {
@@ -39,14 +55,18 @@ test('stores credentials encrypted at rest and lists only metadata', () => {
   const vault = createCredentialVault({ filePath, secret: SECRET });
 
   vault.set('facebook', { accessToken: 'fb-secret-token', pageId: 'page-1' });
+  vault.set('linkedin', { accessToken: 'li-secret-token', authorUrn: 'urn:li:person:123' });
+  vault.set('pinterest', { accessToken: 'pin-secret-token', boardId: '987654321' });
 
   const raw = fs.readFileSync(filePath, 'utf8');
-  assert.doesNotMatch(raw, /fb-secret-token/);
-  assert.doesNotMatch(raw, /page-1/);
+  assert.doesNotMatch(raw, /fb-secret-token|li-secret-token|pin-secret-token/);
+  assert.doesNotMatch(raw, /page-1|urn:li:person:123|987654321/);
   assert.deepEqual(vault.get('facebook'), { accessToken: 'fb-secret-token', pageId: 'page-1' });
-  assert.deepEqual(vault.list().map((item) => item.platform), ['facebook']);
-  assert.equal(vault.remove('facebook'), true);
-  assert.equal(vault.get('facebook'), null);
+  assert.deepEqual(vault.get('linkedin'), { accessToken: 'li-secret-token', authorUrn: 'urn:li:person:123' });
+  assert.deepEqual(vault.get('pinterest'), { accessToken: 'pin-secret-token', boardId: '987654321' });
+  assert.deepEqual(vault.list().map((item) => item.platform).sort(), ['facebook', 'linkedin', 'pinterest']);
+  assert.equal(vault.remove('linkedin'), true);
+  assert.equal(vault.get('linkedin'), null);
 });
 
 test('rejects weak vault master secret', () => {

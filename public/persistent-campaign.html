@@ -43,11 +43,12 @@
     <div>
       <p class="eyebrow">Đại Hải Phát · Persistent Publishing</p>
       <h1>Đưa chiến dịch đã duyệt vào Worker 24/7</h1>
-      <p class="muted">Trang này đọc workflow cùng origin, chỉ gửi Facebook / Instagram / TikTok đã sẵn sàng media sang worker. Credential mạng xã hội vẫn lấy từ encrypted worker vault.</p>
+      <p class="muted">Trang này đọc workflow cùng origin và gửi Facebook / Instagram / TikTok / LinkedIn / Pinterest đã sẵn sàng sang worker. Credential mạng xã hội vẫn lấy từ encrypted worker vault.</p>
     </div>
     <div class="row">
       <a class="button secondary" href="/campaign-export.html">Xem JSON</a>
       <a class="button secondary" href="/worker-admin.html">Worker Admin</a>
+      <a class="button secondary" href="/worker-platforms.html">LinkedIn / Pinterest</a>
     </div>
   </div>
 
@@ -78,7 +79,7 @@
 <script>
 (() => {
   const WORKER_SESSION_KEY = 'dhp_publishing_worker_admin';
-  const WORKER_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok']);
+  const WORKER_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok', 'linkedin', 'pinterest']);
   const SECRET_KEY_PATTERN = /(token|secret|password|api[_-]?key|authorization|credential|refresh[_-]?token|access[_-]?token|private[_-]?key)/i;
   const $ = (id) => document.getElementById(id);
   const state = { campaigns: [], selected: null, preview: null };
@@ -161,6 +162,7 @@
       if (!content) { errors.push(`${platform}: thiếu nội dung đã duyệt.`); continue; }
       if (platform === 'instagram' && !imageUrl) { errors.push('instagram: thiếu image URL đã render công khai.'); continue; }
       if (platform === 'tiktok' && !videoUrl) { errors.push('tiktok: thiếu video URL đã render công khai.'); continue; }
+      if (platform === 'pinterest' && !imageUrl) { errors.push('pinterest: thiếu image URL đã render công khai.'); continue; }
 
       for (const scheduledTime of slots) {
         const idempotencyKey = await sha256([campaignId, platform, scheduledTime, content].join('|'));
@@ -176,7 +178,7 @@
         });
       }
     }
-    if (!jobs.length && errors.length === 0) errors.push('Không có Facebook, Instagram hoặc TikTok sẵn sàng để gửi Worker.');
+    if (!jobs.length && errors.length === 0) errors.push('Không có nền tảng persistent-worker nào sẵn sàng để gửi.');
     return { campaignId, jobs, errors: [...new Set(errors)], skipped: [...new Set(skipped)] };
   };
 

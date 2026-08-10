@@ -33,6 +33,16 @@ const workflow = (overrides = {}) => ({
       jobs: [{ type: 'video', output: { videoUrl: 'https://example.com/tt.mp4' } }],
     },
     {
+      platform: 'linkedin',
+      content: { text: 'LinkedIn copy' },
+      jobs: [],
+    },
+    {
+      platform: 'pinterest',
+      content: { text: 'Pinterest copy' },
+      jobs: [{ type: 'image', output: { imageUrl: 'https://example.com/pin.jpg' } }],
+    },
+    {
       platform: 'youtube',
       content: { text: 'YouTube copy' },
       jobs: [{ type: 'video', output: { videoUrl: 'https://example.com/yt.mp4' } }],
@@ -41,20 +51,22 @@ const workflow = (overrides = {}) => ({
   ...overrides,
 });
 
-test('expands approved workflow into platform-specific jobs for every schedule slot', () => {
+test('expands approved workflow into supported platform jobs for every schedule slot', () => {
   const result = campaignWorkflowToWorkerJobs(workflow());
   assert.equal(result.campaignId, 'campaign-1');
   assert.equal(result.slotCount, 2);
-  assert.equal(result.platformCount, 3);
-  assert.equal(result.jobs.length, 6);
+  assert.equal(result.platformCount, 5);
+  assert.equal(result.jobs.length, 10);
   assert.deepEqual(result.skippedPlatforms, ['youtube']);
 
   const instagram = result.jobs.find((job) => job.platforms[0] === 'instagram');
   const tiktok = result.jobs.find((job) => job.platforms[0] === 'tiktok');
+  const linkedin = result.jobs.find((job) => job.platforms[0] === 'linkedin');
+  const pinterest = result.jobs.find((job) => job.platforms[0] === 'pinterest');
   assert.equal(instagram.imageUrl, 'https://example.com/ig.jpg');
   assert.equal(tiktok.videoUrl, 'https://example.com/tt.mp4');
-  assert.equal(instagram.content, 'Instagram copy');
-  assert.equal(tiktok.content, 'TikTok copy');
+  assert.equal(linkedin.content, 'LinkedIn copy');
+  assert.equal(pinterest.imageUrl, 'https://example.com/pin.jpg');
 });
 
 test('creates stable idempotency keys for the same campaign workflow', () => {
@@ -72,10 +84,10 @@ test('blocks unapproved workflow before persistent handoff', () => {
   assert.match(validation.errors.join(' '), /approved hoặc scheduled/);
 });
 
-test('blocks Instagram and TikTok when rendered public media URLs are missing', () => {
+test('blocks media-required platforms when rendered public URLs are missing', () => {
   const input = workflow();
   input.channels = input.channels.map((channel) => (
-    channel.platform === 'instagram' || channel.platform === 'tiktok'
+    ['instagram', 'tiktok', 'pinterest'].includes(channel.platform)
       ? { ...channel, jobs: [] }
       : channel
   ));
@@ -83,10 +95,11 @@ test('blocks Instagram and TikTok when rendered public media URLs are missing', 
   assert.equal(validation.valid, false);
   assert.match(validation.errors.join(' '), /instagram: thiếu image URL/);
   assert.match(validation.errors.join(' '), /tiktok: thiếu video URL/);
+  assert.match(validation.errors.join(' '), /pinterest: thiếu image URL/);
 });
 
 test('rejects workflow with no persistent-worker platform', () => {
   const input = workflow();
   input.channels = [{ platform: 'youtube', content: { text: 'YouTube' }, jobs: [] }];
-  assert.throws(() => campaignWorkflowToWorkerJobs(input), /không có Facebook, Instagram hoặc TikTok/);
+  assert.throws(() => campaignWorkflowToWorkerJobs(input), /không có nền tảng nào/);
 });
