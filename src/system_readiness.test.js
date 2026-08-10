@@ -26,7 +26,7 @@ describe('system live readiness', () => {
     expect(result.blockers.map((item) => item.code)).toContain('no_connected_account');
   });
 
-  test('is live-ready with a configured account and clean queue', () => {
+  test('is live-ready with a configured account and clean queue when verification is optional', () => {
     const result = inspectSystemReadiness({
       credentials: { facebook_token: 'token', facebook_page_id: 'page-1' },
       posts: [],
@@ -36,6 +36,41 @@ describe('system live readiness', () => {
     expect(result.readyForLive).toBe(true);
     expect(result.connectedPlatforms).toEqual(['facebook']);
     expect(result.blockers).toHaveLength(0);
+  });
+
+  test('blocks configured but unverified accounts when verification is required', () => {
+    const result = inspectSystemReadiness({
+      credentials: {
+        facebook_token: 'token',
+        facebook_page_id: 'page-1',
+        __requireVerification: true,
+        __verifiedPlatforms: {},
+      },
+      posts: [],
+      now,
+    });
+
+    expect(result.readyForLive).toBe(false);
+    expect(result.connectedCount).toBe(1);
+    expect(result.verifiedCount).toBe(0);
+    expect(result.unverifiedPlatforms).toEqual(['facebook']);
+    expect(result.blockers.map((item) => item.code)).toContain('unverified_accounts');
+  });
+
+  test('is live-ready after the connected account is verified', () => {
+    const result = inspectSystemReadiness({
+      credentials: {
+        facebook_token: 'token',
+        facebook_page_id: 'page-1',
+        __requireVerification: true,
+        __verifiedPlatforms: { facebook: true },
+      },
+      posts: [],
+      now,
+    });
+
+    expect(result.readyForLive).toBe(true);
+    expect(result.verifiedCount).toBe(1);
   });
 
   test('blocks live mode when a due post fails preflight', () => {
