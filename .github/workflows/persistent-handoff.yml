@@ -1,0 +1,39 @@
+name: Persistent Handoff CI
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/publishing/campaign-to-worker.js'
+      - 'scripts/publishing/campaign-to-worker.test.js'
+      - 'scripts/publishing/import-campaign.js'
+      - '.github/workflows/persistent-handoff.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/publishing/campaign-to-worker.js'
+      - 'scripts/publishing/campaign-to-worker.test.js'
+      - 'scripts/publishing/import-campaign.js'
+      - '.github/workflows/persistent-handoff.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: persistent-handoff-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check importer syntax
+        run: |
+          node --check scripts/publishing/campaign-to-worker.js
+          node --check scripts/publishing/import-campaign.js
+      - name: Test campaign conversion
+        run: node --test scripts/publishing/campaign-to-worker.test.js
