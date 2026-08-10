@@ -132,7 +132,7 @@ const App = () => {
         {activeTab === 'drafts' && <CampaignDrafts onNavigate={setActiveTab} />}
         {activeTab === 'media-inbox' && <DhpMediaInbox connectedPlatforms={connectedPlatforms} onQueueChanged={() => setQueueRefreshKey((value) => value + 1)} />}
         {activeTab === 'queue' && <><QueueRuntimeControls apiCredentials={runtimeCredentials} onQueueChanged={() => setQueueRefreshKey((value) => value + 1)} /><QueueMonitor key={queueRefreshKey} apiCredentials={runtimeCredentials} /></>}
-        {activeTab === 'connections' && <PlatformConnections credentials={apiCredentials} onChange={setApiCredentials} onVerificationChange={setConnectionVerification} />}
+        {activeTab === 'connections' && <PlatformConnections credentials={apiCredentials} initialVerification={connectionVerification} onChange={setApiCredentials} onVerificationChange={setConnectionVerification} />}
         {activeTab === 'notifications' && <NotificationCenter />}
         {activeTab === 'scheduler' && (
           <div className="dhp-page p-4 text-white md:p-8"><div className="mx-auto max-w-7xl">
