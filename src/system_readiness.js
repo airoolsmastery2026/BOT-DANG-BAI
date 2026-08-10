@@ -14,6 +14,13 @@ export function inspectSystemReadiness({
   const connectedPlatforms = Object.entries(connected)
     .filter(([, value]) => value)
     .map(([platform]) => platform);
+  const verifiedPlatforms = connectedPlatforms.filter(
+    (platform) => credentials.__verifiedPlatforms?.[platform] === true,
+  );
+  const requireVerification = credentials.__requireVerification === true;
+  const unverifiedPlatforms = requireVerification
+    ? connectedPlatforms.filter((platform) => !verifiedPlatforms.includes(platform))
+    : [];
   const health = inspectQueueHealth({ posts, credentials, now });
   const preflight = inspectPublisherPreflight({ posts, credentials, now });
   const blockers = [];
@@ -22,6 +29,14 @@ export function inspectSystemReadiness({
     blockers.push(createBlocker(
       'no_connected_account',
       'Chưa có tài khoản mạng xã hội nào đủ cấu hình để đăng LIVE.',
+    ));
+  }
+
+  if (unverifiedPlatforms.length > 0) {
+    blockers.push(createBlocker(
+      'unverified_accounts',
+      `Cần kiểm tra kết nối: ${unverifiedPlatforms.join(', ')}.`,
+      unverifiedPlatforms,
     ));
   }
 
@@ -46,6 +61,9 @@ export function inspectSystemReadiness({
     connected,
     connectedPlatforms,
     connectedCount: connectedPlatforms.length,
+    verifiedPlatforms,
+    verifiedCount: requireVerification ? verifiedPlatforms.length : connectedPlatforms.length,
+    unverifiedPlatforms,
     queueHealth: health,
     preflight,
     blockers,
