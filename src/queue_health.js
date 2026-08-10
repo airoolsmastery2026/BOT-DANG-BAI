@@ -1,4 +1,5 @@
 import { MAX_PUBLISH_ATTEMPTS, POST_STATUS, getScheduledPosts } from './post_manager';
+import { PUBLISH_MODE, getPublishMode } from './publisher_adapter';
 
 const REQUIRED_TOKEN = {
   facebook: 'facebook_token',
@@ -27,6 +28,14 @@ const summarizeResults = (post) => {
   }, { success: [], failed: [] });
 };
 
+const resolveTargetId = (post, credentials, platform) => {
+  const explicit = String(post?.targetIds?.[platform] || '').trim();
+  if (explicit) return explicit;
+  if (platform === 'facebook') return String(credentials.facebook_page_id || '').trim();
+  if (platform === 'instagram') return String(credentials.instagram_user_id || '').trim();
+  return '';
+};
+
 export const inspectQueueHealth = ({
   posts = getScheduledPosts(),
   credentials = {},
@@ -36,6 +45,7 @@ export const inspectQueueHealth = ({
 } = {}) => {
   const issues = [];
   const idempotencyKeys = new Map();
+  const mockMode = getPublishMode(credentials) === PUBLISH_MODE.MOCK;
 
   posts.forEach((post) => {
     const scheduledAt = new Date(post.scheduledTime).getTime();
@@ -81,13 +91,19 @@ export const inspectQueueHealth = ({
 
       post.platforms.forEach((platform) => {
         const tokenKey = REQUIRED_TOKEN[platform];
-        if (tokenKey && !String(credentials[tokenKey] || '').trim()) {
+        if (!mockMode && tokenKey && !String(credentials[tokenKey] || '').trim()) {
           issues.push(issue('missing_token', 'error', `Thiếu token ${platform}.`, post, platform));
         }
-        if (platform === 'instagram' && !post.imageUrl) {
+        if (!mockMode && platform === 'facebook' && !resolveTargetId(post, credentials, platform)) {
+          issues.push(issue('missing_target', 'error', 'Thiếu Facebook Page ID.', post, platform));
+        }
+        if (!mockMode && platform === 'instagram' && !resolveTargetId(post, credentials, platform)) {
+          issues.push(issue('missing_target', 'error', 'Thiếu Instagram Business/Creator ID.', post, platform));
+        }
+        if (!mockMode && platform === 'instagram' && !post.imageUrl) {
           issues.push(issue('missing_image', 'error', 'Instagram yêu cầu URL ảnh.', post, platform));
         }
-        if (platform === 'tiktok' && !post.videoUrl) {
+        if (!mockMode && platform === 'tiktok' && !post.videoUrl) {
           issues.push(issue('missing_video', 'error', 'TikTok yêu cầu URL video.', post, platform));
         }
       });
@@ -165,6 +181,7 @@ export const inspectQueueHealth = ({
 
   return {
     healthy: summary.error === 0,
+    mode: mockMode ? PUBLISH_MODE.MOCK : PUBLISH_MODE.LIVE,
     summary,
     issues,
     checkedAt: new Date(now).toISOString(),
