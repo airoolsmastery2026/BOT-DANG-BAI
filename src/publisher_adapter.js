@@ -1,4 +1,5 @@
-import { FacebookAPI, InstagramAPI, TikTokAPI } from './api_handler';
+import { FacebookAPI, InstagramAPI } from './api_handler';
+import { TikTokContentPostingAPI } from './tiktok_content_posting';
 
 export const PUBLISH_MODE = {
   MOCK: 'mock',
@@ -115,8 +116,12 @@ const livePublish = async (platform, post, credentials) => {
   if (platform === 'tiktok') {
     if (!credentials.tiktok_token) throw new Error('Thiếu TikTok access token.');
     if (!post.videoUrl) throw new Error('TikTok yêu cầu URL video.');
-    const api = new TikTokAPI(credentials.tiktok_token);
-    return api.publishVideo(post.videoUrl, post.content);
+    const api = new TikTokContentPostingAPI(credentials.tiktok_token);
+    const creatorInfo = await api.getCreatorInfo();
+    return api.publishVideo(post.videoUrl, post.content, {
+      privacyLevel: 'SELF_ONLY',
+      creatorInfo,
+    });
   }
 
   throw new Error(`Nền tảng ${platform} chưa có publisher adapter.`);
