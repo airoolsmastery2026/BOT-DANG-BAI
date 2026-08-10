@@ -12,7 +12,8 @@ import {
   Wand2,
   XCircle,
 } from 'lucide-react';
-import { generatePost, generatePostVariants } from './content_generator';
+import { getAIContentHealth, isAIContentServerConfigured } from './ai_content_client';
+import { generatePostVariants, generatePostWithAI } from './content_generator';
 import {
   POST_STATUS,
   RECURRENCE,
@@ -29,6 +30,7 @@ const STATUS_LABELS = {
   [POST_STATUS.PUBLISHING]: { label: 'Đang đăng...', color: 'bg-yellow-600' },
   [POST_STATUS.PUBLISHED]: { label: 'Đã đăng', color: 'bg-green-600' },
   [POST_STATUS.FAILED]: { label: 'Thất bại', color: 'bg-red-600' },
+  [POST_STATUS.DEAD_LETTER]: { label: 'Dead Letter', color: 'bg-orange-700' },
   [POST_STATUS.CANCELLED]: { label: 'Đã hủy', color: 'bg-gray-600' },
 };
 
@@ -70,14 +72,15 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
   const [variants, setVariants] = useState([]);
   const [generating, setGenerating] = useState(false);
   const [showAiSettings, setShowAiSettings] = useState(false);
-  const [aiProvider, setAiProvider] = useState('openai');
-  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiHealth, setAiHealth] = useState(null);
 
   const [posts, setPosts] = useState(getScheduledPosts());
   const [autoPublishOn, setAutoPublishOn] = useState(false);
   const [lastCheck, setLastCheck] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [notice, setNotice] = useState(null);
+
+  const aiServerConfigured = isAIContentServerConfigured();
 
   const connectedList = useMemo(
     () => Object.entries(connectedPlatforms).filter(([, enabled]) => enabled).map(([key]) => key),
@@ -137,18 +140,21 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
     return null;
   };
 
+  const contentOptions = () => ({
+    tone,
+    length,
+    emojiLevel,
+    hashtags: hashtags.split(',').map((item) => item.trim()).filter(Boolean),
+    hashtagCount: hashtags.split(',').map((item) => item.trim()).filter(Boolean).length || 3,
+    cta,
+  });
+
   const handleGenerateVariants = () => {
     if (!topic.trim()) return showNotice('error', 'Hãy nhập chủ đề trước khi tạo nội dung.');
     setGenerating(true);
     setNotice(null);
     try {
-      setVariants(generatePostVariants(topic.trim(), {
-        tone,
-        length,
-        emojiLevel,
-        hashtags: hashtags.split(',').map((item) => item.trim()).filter(Boolean),
-        cta,
-      }, 3));
+      setVariants(generatePostVariants(topic.trim(), contentOptions(), 3));
     } catch (error) {
       showNotice('error', error.message || 'Không thể tạo phương án nội dung.');
     } finally {
@@ -161,15 +167,32 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
     setGenerating(true);
     setNotice(null);
     try {
-      const text = await generatePost(
-        topic.trim(),
-        { tone, length, hashtagCount: hashtags.split(',').filter(Boolean).length || 3 },
-        aiApiKey ? { provider: aiProvider, apiKey: aiApiKey } : null,
-      );
+      const text = await generatePostWithAI(topic.trim(), contentOptions());
       setContent(text);
-      showNotice('success', 'Đã tạo nội dung. Hãy kiểm tra lại trước khi đăng.');
+      showNotice('success', 'Đã tạo nội dung bằng AI server-side. Hãy kiểm tra lại trước khi đăng.');
     } catch (error) {
       showNotice('error', error.message || 'Không thể tạo nội dung bằng AI.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleAiHealth = async () => {
+    setGenerating(true);
+    setNotice(null);
+    try {
+      const health = await getAIContentHealth();
+      setAiHealth(health);
+      if (!health.gatewayConfigured || health.status === 'disabled') {
+        showNotice('info', 'AI Content Server chưa được cấu hình cho giao diện này.');
+      } else if (!health.serverConfigured) {
+        showNotice('error', 'AI Content Server đang chạy nhưng Gemini provider chưa sẵn sàng. Kiểm tra GEMINI_API_KEY trên server.');
+      } else {
+        showNotice('success', `AI Content Server hoạt động · ${health.model || 'Gemini'}.`);
+      }
+    } catch (error) {
+      setAiHealth({ gatewayConfigured: true, serverConfigured: false, status: 'offline', error: error?.message });
+      showNotice('error', error?.message || 'Không thể kết nối AI Content Server.');
     } finally {
       setGenerating(false);
     }
@@ -199,7 +222,7 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
       if (postNow) {
         const processed = await checkAndPublishDuePosts(apiCredentials);
         setLastCheck(new Date());
-        const failed = processed.some((post) => post.status === POST_STATUS.FAILED);
+        const failed = processed.some((post) => [POST_STATUS.FAILED, POST_STATUS.DEAD_LETTER].includes(post.status));
         showNotice(failed ? 'error' : 'success', failed
           ? 'Đã xử lý nhưng có nền tảng đăng thất bại. Kiểm tra lịch sử.'
           : 'Đã xử lý yêu cầu đăng ngay.');
@@ -289,12 +312,25 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
         </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
-          <button type="button" onClick={handleGenerateVariants} disabled={!topic.trim() || generating} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm disabled:opacity-40">{generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Tạo 3 phương án</button>
-          <button type="button" onClick={handleAiGenerate} disabled={!topic.trim() || generating} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm disabled:opacity-40"><Wand2 className="h-4 w-4" /> Viết bằng AI</button>
-          <button type="button" onClick={() => setShowAiSettings((value) => !value)} className="flex items-center gap-2 rounded-lg bg-gray-700 px-4 py-2 text-sm"><Settings2 className="h-4 w-4" /> Cấu hình AI</button>
+          <button type="button" onClick={handleGenerateVariants} disabled={!topic.trim() || generating} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm disabled:opacity-40">{generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Tạo 3 phương án miễn phí</button>
+          <button type="button" onClick={handleAiGenerate} disabled={!topic.trim() || generating || !aiServerConfigured} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm disabled:opacity-40"><Wand2 className="h-4 w-4" /> Viết bằng AI</button>
+          <button type="button" onClick={() => setShowAiSettings((value) => !value)} className="flex items-center gap-2 rounded-lg bg-gray-700 px-4 py-2 text-sm"><Settings2 className="h-4 w-4" /> Trạng thái AI</button>
         </div>
 
-        {showAiSettings && <div className="mb-4 grid gap-3 rounded-lg border border-gray-700 bg-gray-900 p-4 md:grid-cols-3"><select value={aiProvider} onChange={(event) => setAiProvider(event.target.value)} className="rounded bg-gray-700 px-3 py-2"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select><input type="password" value={aiApiKey} onChange={(event) => setAiApiKey(event.target.value)} placeholder="API key chỉ giữ trong phiên" className="rounded bg-gray-700 px-3 py-2 md:col-span-2" /></div>}
+        {showAiSettings && (
+          <div className="mb-4 rounded-lg border border-gray-700 bg-gray-900 p-4 text-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-semibold text-gray-100">AI chạy qua server-side gateway</p>
+                <p className="mt-1 text-xs text-gray-400">Không nhập hoặc lưu Gemini/OpenAI/Anthropic API key trong trình duyệt.</p>
+                <p className={`mt-2 text-xs ${aiServerConfigured ? 'text-emerald-300' : 'text-amber-300'}`}>{aiServerConfigured ? 'Đã cấu hình địa chỉ AI Content Server.' : 'Chưa cấu hình REACT_APP_DHP_AI_CONTENT_URL; template miễn phí vẫn hoạt động.'}</p>
+                {aiHealth?.gatewayConfigured && <p className={`mt-1 text-xs ${aiHealth.serverConfigured ? 'text-emerald-300' : 'text-amber-300'}`}>Gateway: online · Provider: {aiHealth.serverConfigured ? 'ready' : 'chưa sẵn sàng'}</p>}
+                {aiHealth?.model && <p className="mt-1 text-xs text-sky-300">Model server: {aiHealth.model}</p>}
+              </div>
+              <button type="button" onClick={handleAiHealth} disabled={generating || !aiServerConfigured} className="rounded-lg bg-slate-700 px-3 py-2 font-semibold hover:bg-slate-600 disabled:opacity-40">Kiểm tra AI Server</button>
+            </div>
+          </div>
+        )}
 
         {variants.length > 0 && <div className="mb-4 grid gap-3 md:grid-cols-3">{variants.map((variant, index) => <button type="button" key={`${index}-${variant.slice(0, 20)}`} onClick={() => setContent(variant)} className="rounded-lg border border-gray-700 bg-gray-900 p-3 text-left text-xs whitespace-pre-wrap">{variant}</button>)}</div>}
 
@@ -306,18 +342,21 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
         <div className="mb-4 flex flex-wrap gap-2">{SUPPORTED_PLATFORMS.map((platform) => <button type="button" key={platform} disabled={!connectedPlatforms[platform]} onClick={() => togglePlatform(platform)} aria-pressed={platforms.includes(platform)} className={`rounded-lg px-4 py-2 text-sm capitalize ${platforms.includes(platform) ? 'bg-purple-600' : 'bg-gray-700'} ${!connectedPlatforms[platform] ? 'cursor-not-allowed opacity-30' : ''}`}>{platform}</button>)}</div>
         {availablePlatforms.length === 0 && <p className="mb-4 text-xs text-yellow-300">Hãy kết nối Facebook, Instagram hoặc TikTok trước khi lên lịch.</p>}
 
-        <div className="mb-4 grid gap-4 md:grid-cols-2"><input value={targetIds.facebook} onChange={(event) => setTargetIds((current) => ({ ...current, facebook: event.target.value }))} placeholder="Facebook Page ID" className="rounded bg-gray-700 px-3 py-2" /><input value={targetIds.instagram} onChange={(event) => setTargetIds((current) => ({ ...current, instagram: event.target.value }))} placeholder="Instagram Business Account ID" className="rounded bg-gray-700 px-3 py-2" /></div>
+        <div className="mb-4 grid gap-4 md:grid-cols-2"><input value={targetIds.facebook} onChange={(event) => setTargetIds((current) => ({ ...current, facebook: event.target.value }))} placeholder="Facebook Page ID (tùy chọn ghi đè)" className="rounded bg-gray-700 px-3 py-2" /><input value={targetIds.instagram} onChange={(event) => setTargetIds((current) => ({ ...current, instagram: event.target.value }))} placeholder="Instagram Business ID (tùy chọn ghi đè)" className="rounded bg-gray-700 px-3 py-2" /></div>
 
         <div className="mb-4 grid gap-4 md:grid-cols-3"><label className="text-xs text-gray-400"><Calendar className="mr-1 inline h-3 w-3" />Thời gian đăng<input type="datetime-local" value={scheduledTime} min={toDatetimeLocal(new Date())} onChange={(event) => setScheduledTime(event.target.value)} className="mt-1 w-full rounded bg-gray-700 px-3 py-2 text-sm text-white" /></label><label className="text-xs text-gray-400"><Repeat className="mr-1 inline h-3 w-3" />Lặp lại<select value={recurrence} onChange={(event) => setRecurrence(event.target.value)} className="mt-1 w-full rounded bg-gray-700 px-3 py-2 text-sm text-white"><option value={RECURRENCE.NONE}>Không lặp</option><option value={RECURRENCE.DAILY}>Hàng ngày</option><option value={RECURRENCE.WEEKLY}>Hàng tuần</option></select></label></div>
 
         <div className="flex flex-wrap gap-2"><button type="button" onClick={() => handleSchedule(false)} disabled={processing} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm disabled:opacity-40"><Clock className="h-4 w-4" /> Lên lịch đăng</button><button type="button" onClick={() => handleSchedule(true)} disabled={processing} className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm disabled:opacity-40"><Send className="h-4 w-4" /> Đăng ngay</button></div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4"><div className="flex items-center gap-3"><button type="button" role="switch" aria-checked={autoPublishOn} onClick={() => setAutoPublishOn((value) => !value)} className={`h-8 w-14 rounded-full ${autoPublishOn ? 'bg-green-600' : 'bg-gray-600'}`}><span className={`m-1 block h-6 w-6 rounded-full bg-white transition ${autoPublishOn ? 'translate-x-6' : ''}`} /></button><div><p className="font-medium">Tự động đăng bài đến hạn</p><p className="text-xs text-gray-400">Kiểm tra mỗi 60 giây · {lastCheck ? lastCheck.toLocaleTimeString('vi-VN') : 'chưa chạy'}</p></div></div><button type="button" onClick={handleManualCheck} disabled={processing} className="rounded-lg bg-gray-700 px-4 py-2 text-sm">Kiểm tra hàng đợi</button></div>
+      <div className="rounded-lg border border-gray-700 bg-gray-800 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-4"><div className="flex items-center gap-3"><button type="button" role="switch" aria-checked={autoPublishOn} onClick={() => setAutoPublishOn((value) => !value)} className={`h-8 w-14 rounded-full ${autoPublishOn ? 'bg-green-600' : 'bg-gray-600'}`}><span className={`m-1 block h-6 w-6 rounded-full bg-white transition ${autoPublishOn ? 'translate-x-6' : ''}`} /></button><div><p className="font-medium">Tự động xử lý bài đến hạn trong phiên</p><p className="text-xs text-gray-400">Kiểm tra mỗi 60 giây · {lastCheck ? lastCheck.toLocaleTimeString('vi-VN') : 'chưa chạy'}</p></div></div><button type="button" onClick={handleManualCheck} disabled={processing} className="rounded-lg bg-gray-700 px-4 py-2 text-sm">Kiểm tra hàng đợi</button></div>
+        <p className="mt-3 text-xs text-amber-300">Lưu ý: bộ kiểm tra 60 giây chạy trong trình duyệt và chỉ hoạt động khi trang đang mở.</p>
+      </div>
 
       <section><h3 className="mb-3 flex items-center gap-2 text-xl font-bold"><Clock className="h-5 w-5" /> Hàng đợi ({upcoming.length})</h3>{upcoming.length === 0 ? <p className="text-sm text-gray-400">Chưa có bài nào được lên lịch.</p> : <div className="space-y-3">{upcoming.map((post) => <article key={post.id} className="flex gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4"><div className="min-w-0 flex-1"><p className="line-clamp-3 whitespace-pre-wrap text-sm">{post.content}</p><p className="mt-2 text-xs text-gray-400">{new Date(post.scheduledTime).toLocaleString('vi-VN')} · {post.platforms.join(', ')}</p></div><button type="button" onClick={() => { cancelPost(post.id); refreshPosts(); }} aria-label="Hủy bài" className="text-yellow-400"><XCircle className="h-5 w-5" /></button><button type="button" onClick={() => { deletePost(post.id); refreshPosts(); }} aria-label="Xóa bài" className="text-red-400"><Trash2 className="h-5 w-5" /></button></article>)}</div>}</section>
 
-      <section><h3 className="mb-3 text-xl font-bold">Lịch sử</h3>{history.length === 0 ? <p className="text-sm text-gray-400">Chưa có bài nào được xử lý.</p> : <div className="space-y-3">{history.map((post) => { const statusInfo = STATUS_LABELS[post.status] || STATUS_LABELS[POST_STATUS.SCHEDULED]; return <article key={post.id} className="flex gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4"><div className="min-w-0 flex-1"><div className="mb-1 flex items-center gap-2"><span className={`rounded-full px-2 py-0.5 text-xs ${statusInfo.color}`}>{statusInfo.label}</span>{post.status === POST_STATUS.FAILED && <AlertTriangle className="h-4 w-4 text-red-400" />}{post.status === POST_STATUS.PUBLISHED && <CheckCircle2 className="h-4 w-4 text-green-400" />}</div><p className="line-clamp-2 whitespace-pre-wrap text-sm">{post.content}</p>{post.results && Object.entries(post.results).map(([platform, result]) => !result.success && <p key={platform} className="mt-1 text-xs text-red-400">{platform}: {result.error}</p>)}</div><button type="button" onClick={() => { deletePost(post.id); refreshPosts(); }} aria-label="Xóa lịch sử" className="text-red-400"><Trash2 className="h-5 w-5" /></button></article>; })}</div>}</section>
+      <section><h3 className="mb-3 text-xl font-bold">Lịch sử</h3>{history.length === 0 ? <p className="text-sm text-gray-400">Chưa có bài nào được xử lý.</p> : <div className="space-y-3">{history.map((post) => { const statusInfo = STATUS_LABELS[post.status] || STATUS_LABELS[POST_STATUS.SCHEDULED]; return <article key={post.id} className="flex gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4"><div className="min-w-0 flex-1"><div className="mb-1 flex items-center gap-2"><span className={`rounded-full px-2 py-0.5 text-xs ${statusInfo.color}`}>{statusInfo.label}</span>{[POST_STATUS.FAILED, POST_STATUS.DEAD_LETTER].includes(post.status) && <AlertTriangle className="h-4 w-4 text-red-400" />}{post.status === POST_STATUS.PUBLISHED && <CheckCircle2 className="h-4 w-4 text-green-400" />}</div><p className="line-clamp-2 whitespace-pre-wrap text-sm">{post.content}</p>{post.results && Object.entries(post.results).map(([platform, result]) => !result.success && <p key={platform} className="mt-1 text-xs text-red-400">{platform}: {result.error}</p>)}</div><button type="button" onClick={() => { deletePost(post.id); refreshPosts(); }} aria-label="Xóa lịch sử" className="text-red-400"><Trash2 className="h-5 w-5" /></button></article>; })}</div>}</section>
     </div>
   );
 };

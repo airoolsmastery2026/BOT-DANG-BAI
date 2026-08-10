@@ -28,7 +28,8 @@
     "linkedin:server": "node server/linkedin-server.js",
     "dhp:media-server": "node server/dhp-media-ingress.js",
     "dhp:publishing-control": "node server/publishing-control-server.js",
-    "dhp:telegram-control": "node server/telegram-control.js"
+    "dhp:telegram-control": "node server/telegram-control.js",
+    "dhp:ai-content": "node server/ai-content-server.js"
   },
   "eslintConfig": {
     "extends": ["react-app"]
@@ -41,6 +42,6 @@
     "node": "20.x",
     "npm": "10.x"
   },
-  "keywords": ["facebook", "instagram", "tiktok", "zalo", "linkedin", "telegram", "scheduler", "publishing", "social-media"],
+  "keywords": ["facebook", "instagram", "tiktok", "zalo", "linkedin", "telegram", "gemini", "scheduler", "publishing", "social-media"],
   "license": "MIT"
 }

@@ -1,12 +1,4 @@
-/**
- * Content Generator - "Bot tự động viết bài"
- * Hỗ trợ 2 chế độ:
- *  1) Template mode (mặc định, không cần API key) - ghép câu theo mẫu + từ khóa
- *  2) AI mode (tuỳ chọn) - gọi API của bạn (OpenAI-compatible hoặc Anthropic)
- *     bằng chính API key do bạn nhập vào, không có key nào được nhúng sẵn.
- */
-
-// ============= TEMPLATE-BASED GENERATOR =============
+import { isAIContentServerConfigured, requestAIContent } from './ai_content_client';
 
 const OPENERS = [
   '🔥 Tin vui cho ai đang tìm',
@@ -40,10 +32,6 @@ const EMOJI_SETS = {
   heavy: ['🔥', '✨', '🎉', '💯', '👉', '⭐'],
 };
 
-/**
- * Tinh chỉnh: topic, tone (neutral|urgent|friendly), length (short|medium|long),
- * emojiLevel (none|light|heavy), hashtags (array), cta (string tuỳ chỉnh override closer)
- */
 export const generateTemplatePost = (topic, options = {}) => {
   const {
     tone = 'neutral',
@@ -53,125 +41,67 @@ export const generateTemplatePost = (topic, options = {}) => {
     cta = '',
   } = options;
 
+  const normalizedTopic = String(topic || '').trim();
+  if (!normalizedTopic) throw new Error('Chủ đề không được để trống.');
+
   const opener = OPENERS[Math.floor(Math.random() * OPENERS.length)];
   const closerPool = CLOSERS[tone] || CLOSERS.neutral;
-  const closer = cta.trim() || closerPool[Math.floor(Math.random() * closerPool.length)];
+  const closer = String(cta || '').trim() || closerPool[Math.floor(Math.random() * closerPool.length)];
   const emojis = EMOJI_SETS[emojiLevel] || [];
 
   const bodyByLength = {
-    short: `${topic}.`,
-    medium: `${topic}. Sản phẩm/dịch vụ được thiết kế riêng để đáp ứng nhu cầu của bạn, đảm bảo chất lượng và giá cả hợp lý.`,
-    long: `${topic}. Sản phẩm/dịch vụ được thiết kế riêng để đáp ứng nhu cầu của bạn, đảm bảo chất lượng và giá cả hợp lý. Với đội ngũ giàu kinh nghiệm, chúng tôi cam kết mang lại trải nghiệm tốt nhất cho từng khách hàng, từ tư vấn đến hậu mãi.`,
+    short: `${normalizedTopic}.`,
+    medium: `${normalizedTopic}. Sản phẩm/dịch vụ được thiết kế để đáp ứng nhu cầu thực tế, ưu tiên tính rõ ràng, phù hợp và dễ trao đổi trước khi triển khai.`,
+    long: `${normalizedTopic}. Sản phẩm/dịch vụ được thiết kế để đáp ứng nhu cầu thực tế, ưu tiên tính rõ ràng, phù hợp và dễ trao đổi trước khi triển khai. Mỗi yêu cầu nên được xem xét theo kích thước, vật liệu, ngân sách và điều kiện sử dụng cụ thể để có phương án phù hợp.`,
   };
 
   const emojiLine = emojis.length ? emojis.join(' ') : '';
-  const hashtagLine = hashtags.length ? hashtags.map(h => (h.startsWith('#') ? h : `#${h}`)).join(' ') : '';
+  const hashtagLine = Array.isArray(hashtags) && hashtags.length
+    ? hashtags.map((tag) => String(tag || '').trim()).filter(Boolean).map((tag) => (tag.startsWith('#') ? tag : `#${tag}`)).join(' ')
+    : '';
 
-  const parts = [
+  return [
     `${opener} ${bodyByLength[length] || bodyByLength.medium}`,
     emojiLine,
     closer,
     hashtagLine,
-  ].filter(Boolean);
-
-  return parts.join('\n\n');
+  ].filter(Boolean).join('\n\n');
 };
 
-/**
- * Sinh nhiều biến thể để chọn (giúp bài đăng không bị lặp lại khi đăng thường xuyên)
- */
 export const generatePostVariants = (topic, options = {}, count = 3) => {
+  const safeCount = Math.min(Math.max(Number(count) || 1, 1), 10);
   const variants = new Set();
   let attempts = 0;
-  while (variants.size < count && attempts < count * 4) {
+  while (variants.size < safeCount && attempts < safeCount * 6) {
     variants.add(generateTemplatePost(topic, options));
     attempts += 1;
   }
   return Array.from(variants);
 };
 
-// ============= OPTIONAL AI-BACKED GENERATOR =============
-// Người dùng tự nhập API key của họ (OpenAI hoặc Anthropic), không có key
-// nào được nhúng sẵn trong ứng dụng. Nếu không cấu hình, hệ thống tự dùng
-// template mode ở trên.
+const toAIRequest = (topic, options = {}) => ({
+  topic: String(topic || '').trim(),
+  tone: options.tone || 'neutral',
+  length: options.length || 'medium',
+  hashtags: Array.isArray(options.hashtags) ? options.hashtags : [],
+  hashtagCount: Number(options.hashtagCount || 3),
+  cta: String(options.cta || '').trim(),
+});
 
-export class AIContentGenerator {
-  /**
-   * @param {Object} config
-   * @param {'openai'|'anthropic'} config.provider
-   * @param {string} config.apiKey - API key của chính người dùng
-   * @param {string} [config.model]
-   */
-  constructor(config) {
-    this.provider = config.provider;
-    this.apiKey = config.apiKey;
-    this.model = config.model || (config.provider === 'anthropic' ? 'claude-sonnet-4-6' : 'gpt-4o-mini');
+export const generatePostWithAI = async (topic, options = {}) => {
+  if (!isAIContentServerConfigured()) {
+    throw new Error('AI Content Server chưa cấu hình. Hãy chạy gateway AI server-side trước.');
   }
+  const result = await requestAIContent(toAIRequest(topic, options));
+  return result.text;
+};
 
-  buildPrompt(topic, options = {}) {
-    const { tone = 'neutral', length = 'medium', hashtagCount = 3 } = options;
-    return `Viết một bài đăng mạng xã hội bằng tiếng Việt về chủ đề: "${topic}".
-Giọng văn: ${tone}. Độ dài: ${length}.
-Kèm ${hashtagCount} hashtag liên quan ở cuối bài.
-Chỉ trả về nội dung bài đăng, không thêm giải thích.`;
-  }
-
-  async generate(topic, options = {}) {
-    if (!this.apiKey) {
-      throw new Error('Chưa cấu hình API key cho AI mode');
-    }
-
-    const prompt = this.buildPrompt(topic, options);
-
-    if (this.provider === 'anthropic') {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: 500,
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-      const data = await response.json();
-      if (data.error) throw new Error(data.error.message);
-      return data.content?.map(b => b.text).filter(Boolean).join('\n') || '';
-    }
-
-    // Default: OpenAI-compatible
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 500,
-      }),
-    });
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message);
-    return data.choices?.[0]?.message?.content || '';
-  }
-}
-
-/**
- * Điểm vào chung: dùng AI mode nếu có cấu hình, ngược lại fallback template.
- */
-export const generatePost = async (topic, options = {}, aiConfig = null) => {
-  if (aiConfig && aiConfig.apiKey) {
+export const generatePost = async (topic, options = {}) => {
+  if (isAIContentServerConfigured()) {
     try {
-      const generator = new AIContentGenerator(aiConfig);
-      const text = await generator.generate(topic, options);
-      if (text && text.trim()) return text.trim();
+      return await generatePostWithAI(topic, options);
     } catch (error) {
-      console.warn('AI generation failed, falling back to template:', error.message);
+      console.warn('AI Content Server unavailable, falling back to template:', error?.message || error);
     }
   }
   return generateTemplatePost(topic, options);
