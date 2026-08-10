@@ -20,7 +20,13 @@ describe('AI content browser client', () => {
 
   test('stays disabled when gateway URL is not configured', async () => {
     expect(isAIContentServerConfigured()).toBe(false);
-    await expect(getAIContentHealth()).resolves.toEqual({ configured: false, status: 'disabled' });
+    await expect(getAIContentHealth()).resolves.toEqual({
+      gatewayConfigured: false,
+      serverConfigured: false,
+      status: 'disabled',
+      provider: null,
+      model: null,
+    });
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
@@ -44,15 +50,45 @@ describe('AI content browser client', () => {
     expect(options.body).not.toMatch(/api[_-]?key|gemini[_-]?api[_-]?key|authorization/i);
   });
 
-  test('reports gateway health without credentials in browser request', async () => {
+  test('reports gateway and server provider readiness without browser credentials', async () => {
     process.env.REACT_APP_DHP_AI_CONTENT_URL = 'http://127.0.0.1:8793';
     global.fetch.mockResolvedValue({
       ok: true,
-      json: jest.fn().mockResolvedValue({ status: 'ok', configured: true, model: 'gemini-2.5-flash' }),
+      json: jest.fn().mockResolvedValue({
+        status: 'ok',
+        configured: true,
+        provider: 'gemini',
+        model: 'gemini-2.5-flash',
+      }),
     });
 
     const result = await getAIContentHealth();
-    expect(result).toMatchObject({ configured: true, status: 'ok' });
+    expect(result).toEqual({
+      gatewayConfigured: true,
+      serverConfigured: true,
+      status: 'ok',
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+    });
     expect(global.fetch.mock.calls[0][1].headers).toBeUndefined();
+  });
+
+  test('distinguishes reachable gateway from missing server-side provider key', async () => {
+    process.env.REACT_APP_DHP_AI_CONTENT_URL = 'http://127.0.0.1:8793';
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        status: 'ok',
+        configured: false,
+        provider: 'gemini',
+        model: 'gemini-2.5-flash',
+      }),
+    });
+
+    await expect(getAIContentHealth()).resolves.toMatchObject({
+      gatewayConfigured: true,
+      serverConfigured: false,
+      status: 'ok',
+    });
   });
 });
