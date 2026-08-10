@@ -26,7 +26,8 @@
     "format": "prettier --write \"src/**/*.{js,jsx}\"",
     "zalo:server": "node server/zalo-server.js",
     "linkedin:server": "node server/linkedin-server.js",
-    "dhp:media-server": "node server/dhp-media-ingress.js"
+    "dhp:media-server": "node server/dhp-media-ingress.js",
+    "dhp:publishing-control": "node server/publishing-control-server.js"
   },
   "eslintConfig": {
     "extends": ["react-app"]
