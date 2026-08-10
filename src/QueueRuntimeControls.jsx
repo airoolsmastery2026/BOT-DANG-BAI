@@ -30,10 +30,17 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
   const [mockScenario, setMockScenario] = useState(MOCK_SCENARIO.SUCCESS);
 
   const summary = useMemo(() => getQueueSummary(), [refreshKey]);
+  const connectedPlatforms = useMemo(() => getConnectedPlatforms(apiCredentials), [apiCredentials]);
   const connectedAccounts = useMemo(
-    () => Object.values(getConnectedPlatforms(apiCredentials)).filter(Boolean).length,
-    [apiCredentials],
+    () => Object.values(connectedPlatforms).filter(Boolean).length,
+    [connectedPlatforms],
   );
+  const verifiedAccounts = useMemo(() => {
+    if (apiCredentials.__requireVerification !== true) return connectedAccounts;
+    return Object.entries(connectedPlatforms)
+      .filter(([platform, connected]) => connected && apiCredentials.__verifiedPlatforms?.[platform] === true)
+      .length;
+  }, [apiCredentials, connectedAccounts, connectedPlatforms]);
 
   const finish = () => {
     setRefreshKey((value) => value + 1);
@@ -139,7 +146,7 @@ const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-300">Local Queue Runtime</p>
             <h2 className="mt-1 text-xl font-bold">Điều khiển xử lý hàng đợi</h2>
-            <p className="mt-1 text-sm text-gray-400">{summary.scheduled} chờ · {summary.due} đến hạn · {summary.failed} thất bại · {summary.dead_letter || 0} Dead Letter · {connectedAccounts}/3 tài khoản sẵn sàng</p>
+            <p className="mt-1 text-sm text-gray-400">{summary.scheduled} chờ · {summary.due} đến hạn · {summary.failed} thất bại · {summary.dead_letter || 0} Dead Letter · {verifiedAccounts}/{connectedAccounts} tài khoản đã kiểm tra</p>
             <p className="mt-1 text-xs text-emerald-300">MOCK miễn phí: không cần token, không gửi dữ liệu tới mạng xã hội.</p>
             {schedulerState && <p className={`mt-1 text-xs ${schedulerState.paused ? 'text-amber-300' : 'text-emerald-300'}`}>Remote control: {schedulerState.paused ? 'PAUSED' : 'RUNNING'}{schedulerState.updatedBy ? ` · ${schedulerState.updatedBy}` : ''}</p>}
             {preflightReport && <p className="mt-1 text-xs text-sky-300">Preflight {preflightReport.mode || 'live'}: {preflightReport.runnableCount} sẵn sàng · {preflightReport.blockedCount} bị chặn</p>}
