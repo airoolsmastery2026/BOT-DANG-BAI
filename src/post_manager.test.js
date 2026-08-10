@@ -13,6 +13,7 @@ import {
   schedulePost,
   schedulePosts,
 } from './post_manager';
+import { __resetQueueRuntimeLockForTests } from './queue_runtime_lock';
 import { FacebookAPI, InstagramAPI } from './api_handler';
 
 jest.mock('./api_handler', () => ({
@@ -24,7 +25,7 @@ jest.mock('./api_handler', () => ({
 jest.mock('./utils', () => {
   let store = {};
   return {
-    saveToLocalStorage: (key, value) => { store[key] = value; },
+    saveToLocalStorage: (key, value) => { store[key] = value; return true; },
     getFromLocalStorage: (key, fallback) => store[key] ?? fallback,
     __resetStorage: () => { store = {}; },
     __setStorage: (key, value) => { store[key] = value; },
@@ -37,7 +38,11 @@ const validPost = (overrides = {}) => ({
   scheduledTime: new Date(Date.now() + 60_000).toISOString(), recurrence: RECURRENCE.NONE, ...overrides,
 });
 
-beforeEach(() => { utils.__resetStorage(); jest.clearAllMocks(); });
+beforeEach(() => {
+  utils.__resetStorage();
+  __resetQueueRuntimeLockForTests();
+  jest.clearAllMocks();
+});
 
 describe('post manager queue', () => {
   test('normalizes platforms and stores campaign metadata', () => {
@@ -109,6 +114,25 @@ describe('post manager queue', () => {
     expect(processed[0].status).toBe(POST_STATUS.PUBLISHED);
   });
 
+  test('serializes concurrent queue runs so a due post is published once', async () => {
+    schedulePost(validPost({ scheduledTime: new Date(Date.now() - 60_000).toISOString() }));
+    let resolvePublish;
+    const publishPost = jest.fn(() => new Promise((resolve) => { resolvePublish = resolve; }));
+    FacebookAPI.mockImplementation(() => ({ publishPost }));
+
+    const first = checkAndPublishDuePosts({ facebook_token: 'fb', facebook_page_id: 'page-1' });
+    const second = checkAndPublishDuePosts({ facebook_token: 'fb', facebook_page_id: 'page-1' });
+
+    await Promise.resolve();
+    expect(publishPost).toHaveBeenCalledTimes(1);
+    resolvePublish({ success: true, postId: 'fb-1' });
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult[0].status).toBe(POST_STATUS.PUBLISHED);
+    expect(secondResult[0].status).toBe(POST_STATUS.PUBLISHED);
+    expect(publishPost).toHaveBeenCalledTimes(1);
+  });
+
   test('free mock partial failure preserves successes for selective retry', async () => {
     const scheduled = schedulePost(validPost({
       platforms: ['facebook', 'instagram'],
@@ -121,6 +145,8 @@ describe('post manager queue', () => {
     });
 
     expect(firstRun[0].status).toBe(POST_STATUS.FAILED);
+    expect(firstRun[0].publishedAt).toBeUndefined();
+    expect(firstRun[0].lastAttemptAt).toBeTruthy();
     expect(firstRun[0].results.facebook.success).toBe(true);
     expect(firstRun[0].results.instagram.success).toBe(false);
     expect(firstRun[0].pendingPlatforms).toEqual(['instagram']);
@@ -134,6 +160,7 @@ describe('post manager queue', () => {
     });
 
     expect(secondRun[0].status).toBe(POST_STATUS.PUBLISHED);
+    expect(secondRun[0].publishedAt).toBeTruthy();
     expect(secondRun[0].results.facebook.success).toBe(true);
     expect(secondRun[0].results.instagram.success).toBe(true);
   });
@@ -150,13 +177,15 @@ describe('post manager queue', () => {
     expect(stored.deadLetteredAt).toBeTruthy();
   });
 
-  test('moves a final failed publish attempt to dead letter', async () => {
+  test('moves a final failed publish attempt to dead letter without publishedAt', async () => {
     const scheduled = schedulePost(validPost({ scheduledTime: new Date(Date.now() - 60_000).toISOString() }));
     utils.__setStorage('scheduled_posts', [{ ...scheduled, attemptCount: MAX_PUBLISH_ATTEMPTS - 1 }]);
     FacebookAPI.mockImplementation(() => ({ publishPost: jest.fn().mockRejectedValue(new Error('permanent')) }));
-    const processed = await checkAndPublishDuePosts({ facebook_token: 'fb' });
+    const processed = await checkAndPublishDuePosts({ facebook_token: 'fb', facebook_page_id: 'page-1' });
     expect(processed[0].status).toBe(POST_STATUS.DEAD_LETTER);
     expect(processed[0].attemptCount).toBe(MAX_PUBLISH_ATTEMPTS);
+    expect(processed[0].publishedAt).toBeUndefined();
+    expect(processed[0].lastAttemptAt).toBeTruthy();
   });
 
   test('recovers stale publishing posts as failed', () => {
