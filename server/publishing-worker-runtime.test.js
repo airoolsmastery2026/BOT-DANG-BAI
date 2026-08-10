@@ -26,8 +26,8 @@ const baseJob = (overrides = {}) => normalizeJob({
 }, { now: new Date('2026-08-09T23:00:00.000Z').getTime() });
 
 test('normalizes supported platforms and creates idempotency key', () => {
-  const job = baseJob({ platforms: ['Facebook', 'facebook', 'unknown'] });
-  assert.deepEqual(job.platforms, ['facebook']);
+  const job = baseJob({ platforms: ['Facebook', 'facebook', 'LinkedIn', 'Pinterest', 'unknown'] });
+  assert.deepEqual(job.platforms, ['facebook', 'linkedin', 'pinterest']);
   assert.equal(job.status, JOB_STATUS.SCHEDULED);
   assert.equal(job.attemptCount, 0);
   assert.equal(job.idempotencyKey.length, 64);
