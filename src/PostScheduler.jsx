@@ -183,15 +183,15 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
     try {
       const health = await getAIContentHealth();
       setAiHealth(health);
-      if (!health.configured || health.status === 'disabled') {
+      if (!health.gatewayConfigured || health.status === 'disabled') {
         showNotice('info', 'AI Content Server chưa được cấu hình cho giao diện này.');
-      } else if (health.configured === false) {
-        showNotice('error', 'AI Content Server đang chạy nhưng chưa có GEMINI_API_KEY.');
+      } else if (!health.serverConfigured) {
+        showNotice('error', 'AI Content Server đang chạy nhưng Gemini provider chưa sẵn sàng. Kiểm tra GEMINI_API_KEY trên server.');
       } else {
         showNotice('success', `AI Content Server hoạt động · ${health.model || 'Gemini'}.`);
       }
     } catch (error) {
-      setAiHealth({ configured: true, status: 'offline', error: error?.message });
+      setAiHealth({ gatewayConfigured: true, serverConfigured: false, status: 'offline', error: error?.message });
       showNotice('error', error?.message || 'Không thể kết nối AI Content Server.');
     } finally {
       setGenerating(false);
@@ -324,6 +324,7 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
                 <p className="font-semibold text-gray-100">AI chạy qua server-side gateway</p>
                 <p className="mt-1 text-xs text-gray-400">Không nhập hoặc lưu Gemini/OpenAI/Anthropic API key trong trình duyệt.</p>
                 <p className={`mt-2 text-xs ${aiServerConfigured ? 'text-emerald-300' : 'text-amber-300'}`}>{aiServerConfigured ? 'Đã cấu hình địa chỉ AI Content Server.' : 'Chưa cấu hình REACT_APP_DHP_AI_CONTENT_URL; template miễn phí vẫn hoạt động.'}</p>
+                {aiHealth?.gatewayConfigured && <p className={`mt-1 text-xs ${aiHealth.serverConfigured ? 'text-emerald-300' : 'text-amber-300'}`}>Gateway: online · Provider: {aiHealth.serverConfigured ? 'ready' : 'chưa sẵn sàng'}</p>}
                 {aiHealth?.model && <p className="mt-1 text-xs text-sky-300">Model server: {aiHealth.model}</p>}
               </div>
               <button type="button" onClick={handleAiHealth} disabled={generating || !aiServerConfigured} className="rounded-lg bg-slate-700 px-3 py-2 font-semibold hover:bg-slate-600 disabled:opacity-40">Kiểm tra AI Server</button>
