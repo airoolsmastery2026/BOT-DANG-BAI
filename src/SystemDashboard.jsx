@@ -4,10 +4,13 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
+  KeyRound,
   RefreshCw,
   Server,
   Share2,
+  ShieldCheck,
 } from 'lucide-react';
+import { inspectSystemReadiness } from './system_readiness';
 
 const DEFAULTS = {
   zalo: { baseUrl: 'http://localhost:8787', apiKey: '' },
@@ -64,7 +67,7 @@ const statusStyle = (online) => online
 
 const getErrorMessage = (error) => error instanceof Error ? error.message : 'Không thể kết nối server.';
 
-const SystemDashboard = ({ onNavigate }) => {
+const SystemDashboard = ({ onNavigate, apiCredentials = {} }) => {
   const settings = useMemo(() => ({
     zalo: readSettings('zalo_server_settings', DEFAULTS.zalo),
     linkedin: readSettings('linkedin_server_settings', DEFAULTS.linkedin),
@@ -144,6 +147,10 @@ const SystemDashboard = ({ onNavigate }) => {
     },
   ], [errors, services]);
 
+  const readiness = useMemo(
+    () => inspectSystemReadiness({ credentials: apiCredentials }),
+    [apiCredentials, updatedAt],
+  );
   const onlineCount = cards.filter((card) => Boolean(card.data)).length;
   const offlineCount = cards.length - onlineCount;
 
@@ -153,7 +160,7 @@ const SystemDashboard = ({ onNavigate }) => {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h2 className="text-3xl md:text-4xl font-bold flex items-center gap-3"><Activity aria-hidden="true" /> Trung tâm vận hành</h2>
-            <p className="text-gray-300 mt-2">Theo dõi connector phân phối nội dung và trạng thái backend theo thời gian thực.</p>
+            <p className="text-gray-300 mt-2">Theo dõi tài khoản đăng bài, hàng đợi và connector backend tại một nơi.</p>
           </div>
           <button
             type="button"
@@ -167,23 +174,52 @@ const SystemDashboard = ({ onNavigate }) => {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" aria-live="polite">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4" aria-live="polite">
           <div className="bg-gray-800 border border-gray-700 rounded-xl p-5">
-            <p className="text-sm text-gray-400">Connector trực tuyến</p>
-            <p className="text-3xl font-bold mt-2">{onlineCount}/{cards.length}</p>
-            <p className="text-xs text-gray-500 mt-2">{offlineCount ? `${offlineCount} connector cần kiểm tra` : 'Tất cả hoạt động bình thường'}</p>
+            <p className="text-sm text-gray-400">Sẵn sàng đăng LIVE</p>
+            <p className={`mt-2 flex items-center gap-2 text-xl font-bold ${readiness.readyForLive ? 'text-emerald-300' : 'text-amber-300'}`}>
+              <ShieldCheck className="w-5 h-5" /> {readiness.readyForLive ? 'Sẵn sàng' : 'Cần xử lý'}
+            </p>
+            <p className="text-xs text-gray-500 mt-2">{readiness.blockers.length ? `${readiness.blockers.length} nhóm vấn đề còn lại` : 'Không có blocker LIVE'}</p>
+          </div>
+          <div className="bg-gray-800 border border-gray-700 rounded-xl p-5">
+            <p className="text-sm text-gray-400">Tài khoản mạng xã hội</p>
+            <p className="text-3xl font-bold mt-2">{readiness.connectedCount}/3</p>
+            <button type="button" onClick={() => onNavigate('connections')} className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-purple-300 hover:text-purple-200 focus:outline-none focus:ring-2 focus:ring-purple-300 rounded">
+              <KeyRound className="w-4 h-4" /> Quản lý kết nối
+            </button>
           </div>
           <div className="bg-gray-800 border border-gray-700 rounded-xl p-5">
             <p className="text-sm text-gray-400">Hàng đợi hợp nhất</p>
             <button type="button" onClick={() => onNavigate('queue')} className="mt-2 text-left text-lg font-semibold text-purple-300 hover:text-purple-200 focus:outline-none focus:ring-2 focus:ring-purple-300 rounded">
               Mở màn hình hàng đợi
             </button>
+            <p className="text-xs text-gray-500 mt-2">{readiness.preflight.dueCount} bài đến hạn · {readiness.preflight.blockedCount} bị chặn</p>
           </div>
           <div className="bg-gray-800 border border-gray-700 rounded-xl p-5">
-            <p className="text-sm text-gray-400">Lần đồng bộ cuối</p>
-            <p className="text-lg font-semibold mt-3 flex items-center gap-2"><Clock3 aria-hidden="true" className="w-4 h-4" /> {updatedAt ? updatedAt.toLocaleString('vi-VN') : 'Đang tải'}</p>
+            <p className="text-sm text-gray-400">Connector trực tuyến</p>
+            <p className="text-3xl font-bold mt-2">{onlineCount}/{cards.length}</p>
+            <p className="text-xs text-gray-500 mt-2">{offlineCount ? `${offlineCount} connector cần kiểm tra` : 'Tất cả hoạt động bình thường'}</p>
           </div>
         </div>
+
+        {readiness.blockers.length > 0 && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5">
+            <h3 className="font-bold text-amber-200">Blocker trước khi đăng LIVE</h3>
+            <div className="mt-3 space-y-2">
+              {readiness.blockers.map((blocker) => (
+                <div key={blocker.code} className="flex items-start gap-2 text-sm text-amber-100">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{blocker.message}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {readiness.connectedCount === 0 && <button type="button" onClick={() => onNavigate('connections')} className="rounded-lg bg-purple-600 px-3 py-2 text-sm font-semibold hover:bg-purple-500">Kết nối tài khoản</button>}
+              {readiness.queueHealth.summary.error > 0 && <button type="button" onClick={() => onNavigate('queue')} className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold hover:bg-amber-500">Sửa hàng đợi</button>}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {cards.map(({ key, label, icon: Icon, tab, data, detail }) => (
@@ -221,6 +257,7 @@ const SystemDashboard = ({ onNavigate }) => {
               </div>
             ))}
           </div>
+          <p className="mt-4 text-xs text-gray-500"><Clock3 aria-hidden="true" className="mr-1 inline h-3 w-3" /> Lần đồng bộ: {updatedAt ? updatedAt.toLocaleString('vi-VN') : 'đang tải'}</p>
         </div>
       </div>
     </div>
