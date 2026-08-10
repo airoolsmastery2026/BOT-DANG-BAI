@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>DHP Publishing Worker Admin</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background: #020617; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at top, #172554 0, #020617 42%, #020617 100%); min-height: 100vh; }
+    main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0 64px; }
+    h1, h2, h3, p { margin-top: 0; }
+    .eyebrow { color: #c4b5fd; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .16em; }
+    .muted { color: #94a3b8; }
+    .grid { display: grid; gap: 16px; }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card { border: 1px solid rgba(255,255,255,.1); background: rgba(15,23,42,.82); border-radius: 18px; padding: 18px; box-shadow: 0 18px 50px rgba(0,0,0,.24); }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .spread { justify-content: space-between; }
+    label { display: block; color: #cbd5e1; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+    input, select, textarea, button { font: inherit; }
+    input, select, textarea { width: 100%; background: #020617; color: #f8fafc; border: 1px solid #334155; border-radius: 10px; padding: 11px 12px; outline: none; }
+    input:focus, select:focus, textarea:focus { border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,.16); }
+    button { border: 0; border-radius: 10px; padding: 10px 13px; color: white; background: #7c3aed; cursor: pointer; font-weight: 800; }
+    button.secondary { background: #334155; }
+    button.good { background: #059669; }
+    button.warn { background: #d97706; }
+    button.danger { background: #b91c1c; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .status { border-radius: 12px; padding: 11px 13px; margin: 16px 0; font-size: 14px; }
+    .status.ok { border: 1px solid rgba(16,185,129,.35); background: rgba(16,185,129,.1); color: #a7f3d0; }
+    .status.error { border: 1px solid rgba(239,68,68,.35); background: rgba(239,68,68,.1); color: #fecaca; }
+    .status.info { border: 1px solid rgba(59,130,246,.35); background: rgba(59,130,246,.1); color: #bfdbfe; }
+    .badge { display: inline-flex; border: 1px solid #334155; background: #0f172a; border-radius: 999px; padding: 4px 8px; font-size: 12px; color: #cbd5e1; }
+    .account-state { min-height: 22px; font-size: 13px; color: #94a3b8; }
+    .stack { display: grid; gap: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; border-bottom: 1px solid #1e293b; padding: 10px 8px; vertical-align: top; }
+    th { color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+    code { color: #c4b5fd; }
+    @media (max-width: 860px) { .grid-3 { grid-template-columns: 1fr; } table { display: block; overflow-x: auto; } }
+  </style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Đại Hải Phát · Local Operations</p>
+  <h1>Publishing Worker Admin</h1>
+  <p class="muted">Kết nối tài khoản cho worker 24/7, kiểm tra credential và theo dõi persistent queue. Worker token chỉ được giữ trong <code>sessionStorage</code> của trang này.</p>
+
+  <section class="card">
+    <div class="row spread">
+      <div>
+        <h2>Kết nối Worker</h2>
+        <p class="muted">Mặc định worker chạy trên máy local, cổng 8794.</p>
+      </div>
+      <span id="workerBadge" class="badge">Chưa kiểm tra</span>
+    </div>
+    <div class="grid" style="grid-template-columns: 2fr 3fr;">
+      <div>
+        <label for="workerUrl">Worker URL</label>
+        <input id="workerUrl" value="http://127.0.0.1:8794" autocomplete="off" />
+      </div>
+      <div>
+        <label for="workerToken">Worker API token</label>
+        <input id="workerToken" type="password" autocomplete="off" placeholder="DHP_PUBLISHING_WORKER_TOKEN" />
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px;">
+      <button id="saveSession" class="secondary">Lưu trong phiên</button>
+      <button id="checkHealth">Kiểm tra Worker</button>
+      <button id="clearSession" class="danger">Xóa phiên</button>
+    </div>
+  </section>
+
+  <div id="notice" aria-live="polite"></div>
+
+  <section>
+    <div class="row spread" style="margin:26px 0 12px;">
+      <div><p class="eyebrow">Encrypted Vault</p><h2>Tài khoản LIVE 24/7</h2></div>
+      <button id="refreshAccounts" class="secondary">Làm mới trạng thái</button>
+    </div>
+    <div class="grid grid-3">
+      <article class="card" data-platform="facebook">
+        <h3>Facebook Page</h3>
+        <p id="facebookState" class="account-state">Chưa kiểm tra</p>
+        <div class="stack">
+          <div><label>Page Access Token</label><input id="facebookToken" type="password" autocomplete="off" /></div>
+          <div><label>Page ID</label><input id="facebookPageId" autocomplete="off" /></div>
+          <div class="row"><button data-action="save-account" data-platform="facebook">Lưu mã hóa</button><button class="good" data-action="verify-account" data-platform="facebook">Kiểm tra</button><button class="danger" data-action="delete-account" data-platform="facebook">Xóa</button></div>
+        </div>
+      </article>
+
+      <article class="card" data-platform="instagram">
+        <h3>Instagram Business / Creator</h3>
+        <p id="instagramState" class="account-state">Chưa kiểm tra</p>
+        <div class="stack">
+          <div><label>Access Token</label><input id="instagramToken" type="password" autocomplete="off" /></div>
+          <div><label>Business / Creator ID</label><input id="instagramUserId" autocomplete="off" /></div>
+          <div class="row"><button data-action="save-account" data-platform="instagram">Lưu mã hóa</button><button class="good" data-action="verify-account" data-platform="instagram">Kiểm tra</button><button class="danger" data-action="delete-account" data-platform="instagram">Xóa</button></div>
+        </div>
+      </article>
+
+      <article class="card" data-platform="tiktok">
+        <h3>TikTok</h3>
+        <p id="tiktokState" class="account-state">Chưa kiểm tra</p>
+        <div class="stack">
+          <div><label>User Access Token</label><input id="tiktokToken" type="password" autocomplete="off" /></div>
+          <div class="row"><button data-action="save-account" data-platform="tiktok">Lưu mã hóa</button><button class="good" data-action="verify-account" data-platform="tiktok">Kiểm tra</button><button class="danger" data-action="delete-account" data-platform="tiktok">Xóa</button></div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:26px;">
+    <div class="row spread">
+      <div><p class="eyebrow">Persistent Queue</p><h2>Hàng đợi 24/7</h2></div>
+      <div class="row"><button id="processJobs" class="good">Xử lý bài đến hạn</button><button id="refreshJobs" class="secondary">Làm mới</button></div>
+    </div>
+    <div id="queueSummary" class="row" style="margin:12px 0;"></div>
+    <table>
+      <thead><tr><th>ID</th><th>Lịch</th><th>Nền tảng</th><th>Trạng thái</th><th>Lần thử</th><th>Nội dung</th><th></th></tr></thead>
+      <tbody id="jobsBody"><tr><td colspan="7" class="muted">Chưa tải dữ liệu.</td></tr></tbody>
+    </table>
+  </section>
+</main>
+<script>
+(() => {
+  const SESSION_KEY = 'dhp_publishing_worker_admin';
+  const $ = (id) => document.getElementById(id);
+  const notice = $('notice');
+  const workerUrl = $('workerUrl');
+  const workerToken = $('workerToken');
+
+  const setNotice = (type, text) => {
+    notice.className = `status ${type}`;
+    notice.textContent = text;
+  };
+
+  const config = () => ({
+    url: workerUrl.value.trim().replace(/\/$/, ''),
+    token: workerToken.value.trim(),
+  });
+
+  const saveSession = () => {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(config()));
+    setNotice('ok', 'Đã lưu Worker URL và API token trong phiên trình duyệt hiện tại.');
+  };
+
+  const loadSession = () => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) || '{}');
+      if (saved.url) workerUrl.value = saved.url;
+      if (saved.token) workerToken.value = saved.token;
+    } catch {}
+  };
+
+  const request = async (path, options = {}, auth = true) => {
+    const { url, token } = config();
+    if (!url) throw new Error('Thiếu Worker URL.');
+    if (auth && !token) throw new Error('Thiếu Worker API token.');
+    const response = await fetch(`${url}${path}`, {
+      ...options,
+      headers: {
+        ...(auth ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.headers || {}),
+      },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+    return body.data ?? body;
+  };
+
+  const checkHealth = async () => {
+    try {
+      const health = await request('/health', {}, false);
+      $('workerBadge').textContent = health.paused ? 'PAUSED' : 'RUNNING';
+      $('workerBadge').style.color = health.paused ? '#fbbf24' : '#6ee7b7';
+      setNotice('ok', `Worker online · ${health.queue?.total || 0} jobs · ${health.accounts?.length || 0} tài khoản trong vault.`);
+      renderAccountMetadata(health.accounts || []);
+      renderQueueSummary(health.queue || {});
+    } catch (error) {
+      $('workerBadge').textContent = 'OFFLINE';
+      $('workerBadge').style.color = '#fca5a5';
+      setNotice('error', error.message || 'Không thể kết nối Worker.');
+    }
+  };
+
+  const accountPayload = (platform) => {
+    if (platform === 'facebook') return { accessToken: $('facebookToken').value.trim(), pageId: $('facebookPageId').value.trim() };
+    if (platform === 'instagram') return { accessToken: $('instagramToken').value.trim(), userId: $('instagramUserId').value.trim() };
+    if (platform === 'tiktok') return { accessToken: $('tiktokToken').value.trim() };
+    return {};
+  };
+
+  const saveAccount = async (platform) => {
+    const data = await request(`/v1/accounts/${platform}`, { method: 'PUT', body: JSON.stringify(accountPayload(platform)) });
+    document.querySelectorAll(`[data-platform="${platform}"] input[type="password"]`).forEach((input) => { input.value = ''; });
+    setNotice('ok', `${platform}: credential đã được mã hóa trong worker vault.`);
+    setState(platform, `Đã lưu · ${new Date(data.updatedAt).toLocaleString('vi-VN')}`);
+  };
+
+  const verifyAccount = async (platform) => {
+    const data = await request(`/v1/accounts/${platform}/verify`, { method: 'POST' });
+    setState(platform, `✓ ${data.account?.name || data.account?.id || 'Hợp lệ'}`, true);
+    setNotice('ok', `${platform}: kiểm tra kết nối thành công.`);
+  };
+
+  const deleteAccount = async (platform) => {
+    const data = await request(`/v1/accounts/${platform}`, { method: 'DELETE' });
+    setState(platform, data.removed ? 'Đã xóa khỏi vault' : 'Không có credential trong vault');
+    setNotice('ok', `${platform}: đã xử lý yêu cầu xóa credential.`);
+  };
+
+  const setState = (platform, text, ok = false) => {
+    const el = $(`${platform}State`);
+    el.textContent = text;
+    el.style.color = ok ? '#6ee7b7' : '#94a3b8';
+  };
+
+  const renderAccountMetadata = (accounts) => {
+    ['facebook', 'instagram', 'tiktok'].forEach((platform) => {
+      const account = accounts.find((item) => item.platform === platform);
+      if (account?.configured) setState(platform, `Đã mã hóa · ${account.updatedAt ? new Date(account.updatedAt).toLocaleString('vi-VN') : ''}`);
+      else setState(platform, 'Chưa lưu trong worker vault');
+    });
+  };
+
+  const renderQueueSummary = (summary) => {
+    $('queueSummary').innerHTML = ['total','scheduled','due','publishing','published','failed','dead_letter']
+      .map((key) => `<span class="badge">${key}: ${Number(summary[key] || 0)}</span>`).join('');
+  };
+
+  const refreshJobs = async () => {
+    try {
+      const jobs = await request('/v1/jobs');
+      const body = $('jobsBody');
+      if (!jobs.length) {
+        body.innerHTML = '<tr><td colspan="7" class="muted">Queue trống.</td></tr>';
+      } else {
+        body.innerHTML = jobs.map((job) => `<tr>
+          <td><code>${escapeHtml(job.id)}</code></td>
+          <td>${new Date(job.scheduledTime).toLocaleString('vi-VN')}</td>
+          <td>${job.platforms.map(escapeHtml).join(', ')}</td>
+          <td>${escapeHtml(job.status)}</td>
+          <td>${Number(job.attemptCount || 0)}</td>
+          <td>${escapeHtml(String(job.content || '').slice(0, 120))}</td>
+          <td>${job.status === 'failed' ? `<button class="warn" data-retry="${encodeURIComponent(job.id)}">Retry</button>` : ''}</td>
+        </tr>`).join('');
+      }
+      const health = await request('/health', {}, false);
+      renderQueueSummary(health.queue || {});
+    } catch (error) {
+      setNotice('error', error.message || 'Không thể tải queue.');
+    }
+  };
+
+  const escapeHtml = (value) => String(value || '').replace(/[&<>'"]/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[char]));
+
+  document.addEventListener('click', async (event) => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    try {
+      if (button.dataset.action === 'save-account') await saveAccount(button.dataset.platform);
+      if (button.dataset.action === 'verify-account') await verifyAccount(button.dataset.platform);
+      if (button.dataset.action === 'delete-account') await deleteAccount(button.dataset.platform);
+      if (button.dataset.retry) {
+        await request(`/v1/jobs/${button.dataset.retry}/retry`, { method: 'POST' });
+        setNotice('ok', 'Đã đưa job thất bại trở lại lịch xử lý.');
+        await refreshJobs();
+      }
+    } catch (error) {
+      setNotice('error', error.message || 'Thao tác thất bại.');
+    }
+  });
+
+  $('saveSession').addEventListener('click', saveSession);
+  $('clearSession').addEventListener('click', () => { sessionStorage.removeItem(SESSION_KEY); workerToken.value = ''; setNotice('info', 'Đã xóa worker token khỏi phiên.'); });
+  $('checkHealth').addEventListener('click', checkHealth);
+  $('refreshAccounts').addEventListener('click', checkHealth);
+  $('refreshJobs').addEventListener('click', refreshJobs);
+  $('processJobs').addEventListener('click', async () => {
+    try {
+      const data = await request('/v1/jobs/process', { method: 'POST' });
+      setNotice('ok', data.paused ? 'Worker đang PAUSED; queue không được gửi.' : `Đã xử lý ${data.processed?.length || 0} job đến hạn.`);
+      await refreshJobs();
+    } catch (error) {
+      setNotice('error', error.message || 'Không thể xử lý queue.');
+    }
+  });
+
+  loadSession();
+  void checkHealth();
+})();
+</script>
+</body>
+</html>
