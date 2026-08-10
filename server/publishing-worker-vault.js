@@ -10,6 +10,8 @@ const PLATFORM_FIELDS = Object.freeze({
   facebook: ['accessToken', 'pageId'],
   instagram: ['accessToken', 'userId'],
   tiktok: ['accessToken'],
+  linkedin: ['accessToken', 'authorUrn'],
+  pinterest: ['accessToken', 'boardId'],
 });
 
 const clean = (value, max = 4000) => String(value || '').trim().slice(0, max);
@@ -29,6 +31,12 @@ function normalizeCredentials(platform, value) {
   if (!normalized.accessToken) throw new Error(`${platform}: thiếu access token.`);
   if (platform === 'facebook' && !normalized.pageId) throw new Error('facebook: thiếu Page ID.');
   if (platform === 'instagram' && !normalized.userId) throw new Error('instagram: thiếu Business/Creator ID.');
+  if (platform === 'linkedin' && !/^urn:li:(person|organization):/i.test(normalized.authorUrn)) {
+    throw new Error('linkedin: thiếu hoặc sai Author URN.');
+  }
+  if (platform === 'pinterest' && !/^\d+$/.test(normalized.boardId)) {
+    throw new Error('pinterest: thiếu hoặc sai Board ID.');
+  }
   return normalized;
 }
 
