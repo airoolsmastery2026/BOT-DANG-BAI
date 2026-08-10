@@ -1,4 +1,4 @@
-import { FacebookAPI } from './api_handler';
+import { FacebookPagePublishingAPI, InstagramPublishingAPI } from './meta_publishing_api';
 import { TikTokContentPostingAPI } from './tiktok_content_posting';
 import {
   MOCK_SCENARIO,
@@ -8,10 +8,9 @@ import {
   publishThroughAdapter,
 } from './publisher_adapter';
 
-jest.mock('./api_handler', () => ({
-  FacebookAPI: jest.fn(),
-  InstagramAPI: jest.fn(),
-  TikTokAPI: jest.fn(),
+jest.mock('./meta_publishing_api', () => ({
+  FacebookPagePublishingAPI: jest.fn(),
+  InstagramPublishingAPI: jest.fn(),
 }));
 
 jest.mock('./tiktok_content_posting', () => ({
@@ -33,7 +32,8 @@ describe('publisher adapter', () => {
     expect(result.platform).toBe('facebook');
     expect(result.scenario).toBe(MOCK_SCENARIO.SUCCESS);
     expect(result.externalPostId).toContain('mock_facebook_post-1');
-    expect(FacebookAPI).not.toHaveBeenCalled();
+    expect(FacebookPagePublishingAPI).not.toHaveBeenCalled();
+    expect(InstagramPublishingAPI).not.toHaveBeenCalled();
     expect(TikTokContentPostingAPI).not.toHaveBeenCalled();
   });
 
@@ -60,7 +60,7 @@ describe('publisher adapter', () => {
       errorCode: 'MOCK_429',
       retryable: true,
     });
-    expect(FacebookAPI).not.toHaveBeenCalled();
+    expect(FacebookPagePublishingAPI).not.toHaveBeenCalled();
   });
 
   test('partial Instagram scenario fails only Instagram', async () => {
@@ -85,7 +85,7 @@ describe('publisher adapter', () => {
 
   test('uses explicit post target for live Facebook publish', async () => {
     const publishPost = jest.fn().mockResolvedValue({ success: true, postId: 'fb-1' });
-    FacebookAPI.mockImplementation(() => ({ publishPost }));
+    FacebookPagePublishingAPI.mockImplementation(() => ({ publishPost }));
 
     const result = await publishThroughAdapter({
       platform: 'facebook',
@@ -93,14 +93,14 @@ describe('publisher adapter', () => {
       credentials: { __publisherMode: 'live', facebook_token: 'token', facebook_page_id: 'page-default' },
     });
 
-    expect(FacebookAPI).toHaveBeenCalledWith('token');
-    expect(publishPost).toHaveBeenCalledWith('page-explicit', 'Test', { imageUrl: undefined });
+    expect(FacebookPagePublishingAPI).toHaveBeenCalledWith('token');
+    expect(publishPost).toHaveBeenCalledWith('page-explicit', 'Test', { imageUrl: undefined, linkUrl: undefined });
     expect(result.postId).toBe('fb-1');
   });
 
   test('falls back to connected Facebook Page ID when post target is empty', async () => {
     const publishPost = jest.fn().mockResolvedValue({ success: true, postId: 'fb-2' });
-    FacebookAPI.mockImplementation(() => ({ publishPost }));
+    FacebookPagePublishingAPI.mockImplementation(() => ({ publishPost }));
 
     await publishThroughAdapter({
       platform: 'facebook',
@@ -108,7 +108,22 @@ describe('publisher adapter', () => {
       credentials: { __publisherMode: 'live', facebook_token: 'token', facebook_page_id: 'page-connected' },
     });
 
-    expect(publishPost).toHaveBeenCalledWith('page-connected', 'Test', { imageUrl: undefined });
+    expect(publishPost).toHaveBeenCalledWith('page-connected', 'Test', { imageUrl: undefined, linkUrl: undefined });
+  });
+
+  test('publishes Instagram image through focused Meta client', async () => {
+    const publishImage = jest.fn().mockResolvedValue({ success: true, postId: 'ig-1' });
+    InstagramPublishingAPI.mockImplementation(() => ({ publishImage }));
+
+    const result = await publishThroughAdapter({
+      platform: 'instagram',
+      post: { id: 'post-ig', content: 'IG test', imageUrl: 'https://example.com/a.jpg', targetIds: {} },
+      credentials: { __publisherMode: 'live', instagram_token: 'ig-token', instagram_user_id: 'ig-user' },
+    });
+
+    expect(InstagramPublishingAPI).toHaveBeenCalledWith('ig-token');
+    expect(publishImage).toHaveBeenCalledWith('ig-user', 'https://example.com/a.jpg', 'IG test');
+    expect(result.postId).toBe('ig-1');
   });
 
   test('queries TikTok creator info before live video init', async () => {
@@ -131,5 +146,21 @@ describe('publisher adapter', () => {
       { privacyLevel: 'SELF_ONLY', creatorInfo },
     );
     expect(result.publishId).toBe('tt-1');
+  });
+
+  test('blocks live adapter call when verified account state is required but missing', async () => {
+    await expect(publishThroughAdapter({
+      platform: 'facebook',
+      post: { id: 'post-live', content: 'Test' },
+      credentials: {
+        __publisherMode: 'live',
+        __requireVerification: true,
+        __verifiedPlatforms: {},
+        facebook_token: 'token',
+        facebook_page_id: 'page-1',
+      },
+    })).rejects.toThrow(/chưa được kiểm tra thành công/i);
+
+    expect(FacebookPagePublishingAPI).not.toHaveBeenCalled();
   });
 });
