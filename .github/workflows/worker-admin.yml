@@ -1,0 +1,33 @@
+name: Worker Admin CI
+
+on:
+  pull_request:
+    paths:
+      - 'public/worker-admin.html'
+      - 'server/publishing-worker-admin.test.js'
+      - '.github/workflows/worker-admin.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'public/worker-admin.html'
+      - 'server/publishing-worker-admin.test.js'
+      - '.github/workflows/worker-admin.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-admin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-worker-admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate admin security contract
+        run: node --test server/publishing-worker-admin.test.js
