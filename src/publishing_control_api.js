@@ -3,7 +3,7 @@ const token = () => String(process.env.REACT_APP_DHP_PUBLISHING_CONTROL_TOKEN ||
 
 const request = async (path, options = {}) => {
   if (!token()) throw new Error('Publishing Control local chưa có token.');
-  const requestId = globalThis.crypto?.randomUUID?.() || `req-${Date.now()}`;
+  const requestId = window.crypto?.randomUUID?.() || `req-${Date.now()}`;
   const response = await fetch(`${baseUrl()}${path}`, {
     ...options,
     headers: {
