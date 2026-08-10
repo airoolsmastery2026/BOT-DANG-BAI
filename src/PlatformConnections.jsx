@@ -6,7 +6,7 @@ import {
   getPlatformConnectionIssues,
   savePlatformCredentials,
 } from './platform_credentials';
-import { verifyPlatformConnection } from './platform_connection_service';
+import { verifyAllPlatformConnections, verifyPlatformConnection } from './platform_connection_service';
 
 const PLATFORMS = [
   {
@@ -50,6 +50,8 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
 
   const connected = useMemo(() => getConnectedPlatforms(form), [form]);
   const issues = useMemo(() => getPlatformConnectionIssues(form), [form]);
+  const configuredCount = useMemo(() => Object.values(connected).filter(Boolean).length, [connected]);
+  const verifiedCount = useMemo(() => Object.values(verification).filter((result) => result?.ok).length, [verification]);
 
   const updateField = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -68,8 +70,10 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
       setForm(saved);
       onChange(saved);
       setNotice({ type: 'success', text: 'Đã lưu cấu hình tài khoản trong phiên trình duyệt này.' });
+      return saved;
     } catch (error) {
       setNotice({ type: 'error', text: error.message || 'Không thể lưu thông tin kết nối.' });
+      return null;
     }
   };
 
@@ -113,6 +117,33 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
           : result.message,
       });
       if (result.ok) save();
+    } catch (error) {
+      setNotice({ type: 'error', text: error?.message || 'Không thể kiểm tra kết nối.' });
+    } finally {
+      setChecking('');
+    }
+  };
+
+  const verifyAll = async () => {
+    setChecking('all');
+    setNotice(null);
+    try {
+      const results = await verifyAllPlatformConnections(form);
+      setVerification(results);
+      const configuredResults = PLATFORMS
+        .filter((platform) => connected[platform.id])
+        .map((platform) => results[platform.id]);
+      const passed = configuredResults.filter((result) => result?.ok).length;
+      const failed = configuredResults.length - passed;
+      if (passed > 0) save();
+      setNotice({
+        type: failed ? 'error' : 'success',
+        text: configuredResults.length
+          ? `Đã kiểm tra ${configuredResults.length} tài khoản: ${passed} hợp lệ${failed ? `, ${failed} cần sửa` : ''}.`
+          : 'Chưa có tài khoản nào đủ cấu hình để kiểm tra.',
+      });
+    } catch (error) {
+      setNotice({ type: 'error', text: error?.message || 'Không thể kiểm tra toàn bộ kết nối.' });
     } finally {
       setChecking('');
     }
@@ -127,6 +158,7 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
           <p className="mt-2 max-w-3xl text-gray-300">
             Thêm tài khoản dùng để đăng bài và kiểm tra kết nối ngay tại đây. Token chỉ được giữ trong sessionStorage và tự mất khi đóng phiên trình duyệt.
           </p>
+          <p className="mt-2 text-sm text-gray-400">Đủ cấu hình: {configuredCount}/3 · Đã kiểm tra trong phiên: {verifiedCount}/{configuredCount}</p>
         </div>
 
         {notice && (
@@ -149,8 +181,8 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
                       {isConnected ? 'Đủ cấu hình để sử dụng' : 'Chưa đủ cấu hình'}
                     </p>
                   </div>
-                  <span className={`rounded-full border px-2.5 py-1 text-xs ${result?.ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-white/10 bg-white/5 text-gray-400'}`}>
-                    {result?.ok ? 'Đã kiểm tra' : 'Chưa kiểm tra'}
+                  <span className={`rounded-full border px-2.5 py-1 text-xs ${result?.ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : result && !result.ok ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-white/10 bg-white/5 text-gray-400'}`}>
+                    {result?.ok ? 'Đã kiểm tra' : result ? 'Kiểm tra lỗi' : 'Chưa kiểm tra'}
                   </span>
                 </div>
 
@@ -203,11 +235,15 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
                   </div>
                 )}
 
+                {result && !result.ok && (
+                  <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-100">{result.message}</div>
+                )}
+
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => verify(platform.id)}
-                    disabled={checking === platform.id || issues[platform.id]?.length > 0}
+                    disabled={Boolean(checking) || issues[platform.id]?.length > 0}
                     className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-3 py-2 text-sm font-semibold hover:bg-purple-500 disabled:opacity-40"
                   >
                     {checking === platform.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -216,7 +252,7 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
                   <button
                     type="button"
                     onClick={() => disconnect(platform.id)}
-                    disabled={!form[platform.tokenKey] && !(platform.targetKey && form[platform.targetKey])}
+                    disabled={Boolean(checking) || (!form[platform.tokenKey] && !(platform.targetKey && form[platform.targetKey]))}
                     className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-300 hover:bg-white/10 disabled:opacity-40"
                   >
                     <Unplug className="h-4 w-4" /> Ngắt
@@ -228,10 +264,13 @@ const PlatformConnections = ({ credentials = emptyCredentials, onChange = () => 
         </div>
 
         <div className="flex flex-wrap gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-          <button type="button" onClick={save} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold hover:bg-emerald-500">
+          <button type="button" onClick={verifyAll} disabled={Boolean(checking) || configuredCount === 0} className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-4 py-3 font-semibold hover:bg-purple-500 disabled:opacity-40">
+            {checking === 'all' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Kiểm tra tất cả
+          </button>
+          <button type="button" onClick={save} disabled={Boolean(checking)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold hover:bg-emerald-500 disabled:opacity-40">
             <Save className="h-4 w-4" /> Lưu tất cả trong phiên
           </button>
-          <button type="button" onClick={clear} className="inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 font-semibold text-red-200 hover:bg-red-500/20">
+          <button type="button" onClick={clear} disabled={Boolean(checking)} className="inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 font-semibold text-red-200 hover:bg-red-500/20 disabled:opacity-40">
             <Trash2 className="h-4 w-4" /> Xóa toàn bộ kết nối
           </button>
         </div>
