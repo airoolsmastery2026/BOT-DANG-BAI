@@ -28,7 +28,7 @@ export function acquireQueueRuntimeLock({
     acquiredAt: new Date(now).toISOString(),
     expiresAt: now + safeTimeout,
   };
-  if (!saveToLocalStorage(QUEUE_RUNTIME_LOCK_KEY, lock)) return null;
+  saveToLocalStorage(QUEUE_RUNTIME_LOCK_KEY, lock);
 
   const confirmed = getFromLocalStorage(QUEUE_RUNTIME_LOCK_KEY, null);
   return confirmed?.id === lock.id ? lock : null;
@@ -38,7 +38,8 @@ export function releaseQueueRuntimeLock(lockId) {
   if (!lockId) return false;
   const current = getFromLocalStorage(QUEUE_RUNTIME_LOCK_KEY, null);
   if (current?.id !== lockId) return false;
-  return saveToLocalStorage(QUEUE_RUNTIME_LOCK_KEY, null);
+  saveToLocalStorage(QUEUE_RUNTIME_LOCK_KEY, null);
+  return getFromLocalStorage(QUEUE_RUNTIME_LOCK_KEY, null) === null;
 }
 
 export function withQueueRuntimeLock(task, options = {}) {
