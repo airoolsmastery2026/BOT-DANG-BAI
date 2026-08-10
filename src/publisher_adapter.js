@@ -1,4 +1,4 @@
-import { FacebookAPI, InstagramAPI } from './api_handler';
+import { FacebookPagePublishingAPI, InstagramPublishingAPI } from './meta_publishing_api';
 import { TikTokContentPostingAPI } from './tiktok_content_posting';
 
 export const PUBLISH_MODE = {
@@ -100,11 +100,11 @@ const livePublish = async (platform, post, credentials) => {
     if (!credentials.facebook_token) throw new Error('Thiếu Facebook access token.');
     const pageId = resolveTargetId(platform, post, credentials);
     if (!pageId) throw new Error('Thiếu Facebook Page ID. Hãy cấu hình tại mục Kết nối.');
-    const api = new FacebookAPI(credentials.facebook_token);
+    const api = new FacebookPagePublishingAPI(credentials.facebook_token);
     return api.publishPost(
       pageId,
       post.content,
-      { imageUrl: post.imageUrl || undefined },
+      { imageUrl: post.imageUrl || undefined, linkUrl: post.linkUrl || undefined },
     );
   }
 
@@ -113,12 +113,8 @@ const livePublish = async (platform, post, credentials) => {
     if (!post.imageUrl) throw new Error('Instagram yêu cầu URL ảnh.');
     const instagramUserId = resolveTargetId(platform, post, credentials);
     if (!instagramUserId) throw new Error('Thiếu Instagram Business/Creator ID. Hãy cấu hình tại mục Kết nối.');
-    const api = new InstagramAPI(credentials.instagram_token);
-    return api.publishPost(
-      instagramUserId,
-      post.imageUrl,
-      post.content,
-    );
+    const api = new InstagramPublishingAPI(credentials.instagram_token);
+    return api.publishImage(instagramUserId, post.imageUrl, post.content);
   }
 
   if (platform === 'tiktok') {

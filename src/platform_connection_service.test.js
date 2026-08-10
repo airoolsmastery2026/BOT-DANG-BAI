@@ -1,11 +1,10 @@
 import { verifyPlatformConnection } from './platform_connection_service';
-import { FacebookAPI, InstagramAPI } from './api_handler';
+import { FacebookPagePublishingAPI, InstagramPublishingAPI } from './meta_publishing_api';
 import { TikTokContentPostingAPI } from './tiktok_content_posting';
 
-jest.mock('./api_handler', () => ({
-  FacebookAPI: jest.fn(),
-  InstagramAPI: jest.fn(),
-  TikTokAPI: jest.fn(),
+jest.mock('./meta_publishing_api', () => ({
+  FacebookPagePublishingAPI: jest.fn(),
+  InstagramPublishingAPI: jest.fn(),
 }));
 
 jest.mock('./tiktok_content_posting', () => ({
@@ -18,12 +17,12 @@ describe('platform connection verification', () => {
   test('requires Facebook Page ID as well as token', async () => {
     const result = await verifyPlatformConnection('facebook', { facebook_token: 'token' });
     expect(result.ok).toBe(false);
-    expect(FacebookAPI).not.toHaveBeenCalled();
+    expect(FacebookPagePublishingAPI).not.toHaveBeenCalled();
   });
 
   test('verifies the exact Facebook Page account', async () => {
-    const getPageDetails = jest.fn().mockResolvedValue({ id: 'page-1', name: 'My Page' });
-    FacebookAPI.mockImplementation(() => ({ getPageDetails }));
+    const getPageIdentity = jest.fn().mockResolvedValue({ id: 'page-1', name: 'My Page' });
+    FacebookPagePublishingAPI.mockImplementation(() => ({ getPageIdentity }));
 
     const result = await verifyPlatformConnection('facebook', {
       facebook_token: 'token',
@@ -31,12 +30,12 @@ describe('platform connection verification', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(getPageDetails).toHaveBeenCalledWith('page-1');
+    expect(getPageIdentity).toHaveBeenCalledWith('page-1');
   });
 
   test('rejects Facebook token data that resolves to another Page ID', async () => {
-    FacebookAPI.mockImplementation(() => ({
-      getPageDetails: jest.fn().mockResolvedValue({ id: 'page-other', name: 'Other Page' }),
+    FacebookPagePublishingAPI.mockImplementation(() => ({
+      getPageIdentity: jest.fn().mockResolvedValue({ id: 'page-other', name: 'Other Page' }),
     }));
 
     const result = await verifyPlatformConnection('facebook', {
@@ -49,8 +48,8 @@ describe('platform connection verification', () => {
   });
 
   test('verifies Instagram and TikTok posting capability', async () => {
-    InstagramAPI.mockImplementation(() => ({
-      searchAccounts: jest.fn().mockResolvedValue([{ id: 'ig_ig-1', sourceId: 'ig-1', name: 'instagram' }]),
+    InstagramPublishingAPI.mockImplementation(() => ({
+      getAccountIdentity: jest.fn().mockResolvedValue({ id: 'ig-1', sourceId: 'ig-1', name: 'instagram' }),
     }));
     TikTokContentPostingAPI.mockImplementation(() => ({
       getCreatorInfo: jest.fn().mockResolvedValue({
@@ -82,8 +81,8 @@ describe('platform connection verification', () => {
   });
 
   test('rejects an Instagram token that resolves to a different Business/Creator ID', async () => {
-    InstagramAPI.mockImplementation(() => ({
-      searchAccounts: jest.fn().mockResolvedValue([{ id: 'ig_ig-other', sourceId: 'ig-other', name: 'other' }]),
+    InstagramPublishingAPI.mockImplementation(() => ({
+      getAccountIdentity: jest.fn().mockResolvedValue({ id: 'ig-other', sourceId: 'ig-other', name: 'other' }),
     }));
 
     const result = await verifyPlatformConnection('instagram', {
