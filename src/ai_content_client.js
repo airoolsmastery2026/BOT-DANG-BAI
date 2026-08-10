@@ -14,7 +14,15 @@ const parseResponse = async (response) => {
 
 export async function getAIContentHealth() {
   const baseUrl = configuredBaseUrl();
-  if (!baseUrl) return { configured: false, status: 'disabled' };
+  if (!baseUrl) {
+    return {
+      gatewayConfigured: false,
+      serverConfigured: false,
+      status: 'disabled',
+      provider: null,
+      model: null,
+    };
+  }
 
   const response = await fetch(`${baseUrl}/health`, {
     method: 'GET',
@@ -22,8 +30,11 @@ export async function getAIContentHealth() {
   });
   const payload = await parseResponse(response);
   return {
-    configured: true,
-    ...payload,
+    gatewayConfigured: true,
+    serverConfigured: payload.configured === true,
+    status: payload.status || 'unknown',
+    provider: payload.provider || null,
+    model: payload.model || null,
   };
 }
 
