@@ -2,6 +2,7 @@
  * Browser-side post queue runtime.
  */
 import { publishThroughAdapter } from './publisher_adapter';
+import { withQueueRuntimeLock } from './queue_runtime_lock';
 import { saveToLocalStorage, getFromLocalStorage } from './utils';
 
 const STORAGE_KEY = 'scheduled_posts';
@@ -205,7 +206,7 @@ const publishToPlatforms = async (post, credentials = {}, platforms = post.platf
   return results;
 };
 
-export const checkAndPublishDuePosts = async (credentials = {}) => {
+const processDuePosts = async (credentials = {}) => {
   recoverStuckPosts();
   const updatedPosts = [...getScheduledPosts()];
   const recurringPosts = [];
@@ -219,7 +220,8 @@ export const checkAndPublishDuePosts = async (credentials = {}) => {
     if (Number.isNaN(scheduledAt) || scheduledAt > now) continue;
 
     if (Number(post.attemptCount || 0) >= MAX_PUBLISH_ATTEMPTS) {
-      const dead = { ...post, status: POST_STATUS.DEAD_LETTER, deadLetteredAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      const timestamp = new Date().toISOString();
+      const dead = { ...post, status: POST_STATUS.DEAD_LETTER, deadLetteredAt: timestamp, updatedAt: timestamp };
       updatedPosts[index] = dead;
       processed.push(dead);
       continue;
@@ -239,12 +241,17 @@ export const checkAndPublishDuePosts = async (credentials = {}) => {
     const successCount = publishingPost.platforms.filter((platform) => results[platform]?.success === true).length;
     const failureCount = publishingPost.platforms.length - successCount;
     const exhausted = failureCount > 0 && publishingPost.attemptCount >= MAX_PUBLISH_ATTEMPTS;
+    const completedAt = new Date().toISOString();
     const completedPost = {
       ...publishingPost, results,
       pendingPlatforms: publishingPost.platforms.filter((platform) => results[platform]?.success !== true),
       status: failureCount === 0 ? POST_STATUS.PUBLISHED : exhausted ? POST_STATUS.DEAD_LETTER : POST_STATUS.FAILED,
-      deadLetteredAt: exhausted ? new Date().toISOString() : publishingPost.deadLetteredAt,
-      publishedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), successCount, failureCount,
+      deadLetteredAt: exhausted ? completedAt : publishingPost.deadLetteredAt,
+      publishedAt: failureCount === 0 ? completedAt : publishingPost.publishedAt,
+      lastAttemptAt: completedAt,
+      updatedAt: completedAt,
+      successCount,
+      failureCount,
     };
     updatedPosts[index] = completedPost;
     processed.push(completedPost);
@@ -255,7 +262,7 @@ export const checkAndPublishDuePosts = async (credentials = {}) => {
         ...completedPost, id: createPostId(),
         idempotencyKey: buildIdempotencyKey({ campaignId: completedPost.campaignId, platforms: completedPost.platforms, scheduledTime: recurringScheduledTime, content: completedPost.content }),
         scheduledTime: recurringScheduledTime, status: POST_STATUS.SCHEDULED,
-        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), publishedAt: undefined,
+        createdAt: completedAt, updatedAt: completedAt, publishedAt: undefined, lastAttemptAt: undefined,
         results: {}, pendingPlatforms: completedPost.platforms, successCount: undefined, failureCount: undefined, attemptCount: 0, deadLetteredAt: undefined,
       });
     }
@@ -263,3 +270,7 @@ export const checkAndPublishDuePosts = async (credentials = {}) => {
   persist([...updatedPosts, ...recurringPosts]);
   return processed;
 };
+
+export const checkAndPublishDuePosts = (credentials = {}) => withQueueRuntimeLock(
+  () => processDuePosts(credentials),
+);
