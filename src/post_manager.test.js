@@ -103,7 +103,11 @@ describe('post manager queue', () => {
     const instagramPublish = jest.fn().mockResolvedValue({ success: true, id: 'ig-1' });
     InstagramAPI.mockImplementation(() => ({ publishPost: instagramPublish }));
     FacebookAPI.mockImplementation(() => ({ publishPost: jest.fn() }));
-    const processed = await checkAndPublishDuePosts({ facebook_token: 'fb', instagram_token: 'ig' });
+    const processed = await checkAndPublishDuePosts({
+      facebook_token: 'fb',
+      instagram_token: 'ig',
+      instagram_user_id: 'ig-user-1',
+    });
     expect(FacebookAPI).not.toHaveBeenCalled();
     expect(InstagramAPI).toHaveBeenCalledTimes(1);
     expect(processed[0].status).toBe(POST_STATUS.PUBLISHED);
