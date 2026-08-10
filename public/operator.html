@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>BOT ĐĂNG BÀI · Operator Hub</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background: #020617; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #172554 0, #020617 46%); }
+    main { width: min(1100px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 72px; }
+    h1, h2, p { margin-top: 0; }
+    .eyebrow { color: #c4b5fd; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .16em; }
+    .muted { color: #94a3b8; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 24px; }
+    .card { display: flex; flex-direction: column; gap: 12px; min-height: 210px; border: 1px solid rgba(255,255,255,.1); background: rgba(15,23,42,.86); border-radius: 18px; padding: 20px; text-decoration: none; color: inherit; box-shadow: 0 18px 50px rgba(0,0,0,.22); transition: transform .15s ease, border-color .15s ease; }
+    .card:hover { transform: translateY(-2px); border-color: rgba(139,92,246,.65); }
+    .card strong { font-size: 20px; }
+    .badge { width: fit-content; border-radius: 999px; padding: 4px 8px; background: #1e293b; color: #cbd5e1; font-size: 12px; }
+    .step { color: #a7f3d0; font-weight: 800; font-size: 13px; }
+    .status { margin-top: 18px; padding: 12px 14px; border-radius: 12px; border: 1px solid #334155; background: #0f172a; color: #cbd5e1; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    button { border: 0; border-radius: 10px; padding: 9px 12px; font: inherit; font-weight: 800; cursor: pointer; color: white; background: #334155; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Đại Hải Phát · Operations</p>
+  <h1>BOT ĐĂNG BÀI · Operator Hub</h1>
+  <p class="muted">Một điểm vào duy nhất cho các thao tác vận hành. Quy trình khuyến nghị: tạo/duyệt chiến dịch trong app → kiểm tra JSON/media → kết nối Worker → gửi sang queue 24/7.</p>
+
+  <div class="row">
+    <button id="checkWorker">Kiểm tra Worker 24/7</button>
+    <span id="workerState" class="badge">Chưa kiểm tra</span>
+  </div>
+  <div id="status" class="status">Worker URL/token được dùng từ cùng session của Worker Admin; không được ghi vào localStorage.</div>
+
+  <section class="grid" aria-label="Công cụ vận hành">
+    <a class="card" href="/">
+      <span class="step">BƯỚC 1</span>
+      <strong>Ứng dụng chính</strong>
+      <p class="muted">AI Studio, chiến dịch, bản nháp, lịch đăng, hàng đợi, Account Connection Center và MOCK/LIVE runtime.</p>
+      <span class="badge">BOT ĐĂNG BÀI</span>
+    </a>
+
+    <a class="card" href="/campaign-export.html">
+      <span class="step">BƯỚC 2</span>
+      <strong>Kiểm tra Campaign JSON</strong>
+      <p class="muted">Xem/copy/download workflow đã loại field nhạy cảm. Dùng để kiểm tra campaign trước khi đưa vào runtime dài hạn.</p>
+      <span class="badge">Safe export</span>
+    </a>
+
+    <a class="card" href="/worker-admin.html">
+      <span class="step">BƯỚC 3</span>
+      <strong>Kết nối Worker 24/7</strong>
+      <p class="muted">Lưu Worker API token trong session, thêm Facebook/Instagram/TikTok vào encrypted vault, verify tài khoản và xem queue.</p>
+      <span class="badge">Encrypted vault</span>
+    </a>
+
+    <a class="card" href="/persistent-campaign.html">
+      <span class="step">BƯỚC 4</span>
+      <strong>Gửi chiến dịch sang Worker</strong>
+      <p class="muted">Preview platform × schedule slot, kiểm tra media, tạo SHA-256 idempotency key và gửi campaign đã duyệt vào queue 24/7.</p>
+      <span class="badge">Persistent handoff</span>
+    </a>
+  </section>
+</main>
+<script>
+(() => {
+  const SESSION_KEY = 'dhp_publishing_worker_admin';
+  const state = document.getElementById('workerState');
+  const status = document.getElementById('status');
+
+  const readConfig = () => {
+    try {
+      const value = JSON.parse(sessionStorage.getItem(SESSION_KEY) || '{}');
+      return {
+        url: String(value.url || '').trim().replace(/\/$/, ''),
+        token: String(value.token || '').trim(),
+      };
+    } catch { return { url: '', token: '' }; }
+  };
+
+  const checkWorker = async () => {
+    const { url } = readConfig();
+    if (!url) {
+      state.textContent = 'CHƯA KẾT NỐI';
+      status.textContent = 'Mở Worker Admin, nhập Worker URL/API token và lưu trong phiên trước.';
+      return;
+    }
+    state.textContent = 'ĐANG KIỂM TRA';
+    try {
+      const response = await fetch(`${url}/health`, { cache: 'no-store' });
+      const health = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(health.error || `HTTP ${response.status}`);
+      state.textContent = health.paused ? 'PAUSED' : 'RUNNING';
+      status.textContent = `Worker online · ${Number(health.queue?.total || 0)} jobs · ${Number(health.queue?.due || 0)} đến hạn · ${Array.isArray(health.accounts) ? health.accounts.filter((item) => item.configured).length : 0} tài khoản trong vault.`;
+    } catch (error) {
+      state.textContent = 'OFFLINE';
+      status.textContent = error?.message || 'Không thể kết nối Worker.';
+    }
+  };
+
+  document.getElementById('checkWorker').addEventListener('click', checkWorker);
+})();
+</script>
+</body>
+</html>
