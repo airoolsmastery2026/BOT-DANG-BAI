@@ -39,14 +39,17 @@ jobs:
           node --check server/publishing-control-server.js
           node --check server/telegram-control-runtime.js
           node --check server/telegram-control.js
+          node --check server/ai-content-runtime.js
+          node --check server/ai-content-server.js
           node --check api/dhp/social-lead.js
 
-      - name: Run bridge and control unit tests
+      - name: Run backend unit tests
         run: |
           node --test server/dhp-social-lead-bridge.test.js
           node --test server/dhp-media-cloud-sync.test.js
           node --test server/publishing-control-runtime.test.js
           node --test server/telegram-control-runtime.test.js
+          node --test server/ai-content-runtime.test.js
 
       - name: Run unit tests
         env:
