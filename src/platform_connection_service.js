@@ -1,4 +1,4 @@
-import { FacebookAPI, InstagramAPI } from './api_handler';
+import { FacebookPagePublishingAPI, InstagramPublishingAPI } from './meta_publishing_api';
 import { TikTokContentPostingAPI } from './tiktok_content_posting';
 import { normalizeCredentials } from './platform_credentials';
 
@@ -18,11 +18,6 @@ const success = (platform, account) => ({
   checkedAt: new Date().toISOString(),
 });
 
-const normalizeRemoteId = (value, prefix = '') => {
-  const raw = String(value || '').trim();
-  return prefix && raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
-};
-
 export async function verifyPlatformConnection(platform, credentials) {
   const normalized = normalizeCredentials(credentials);
 
@@ -31,10 +26,10 @@ export async function verifyPlatformConnection(platform, credentials) {
       if (!normalized.facebook_token || !normalized.facebook_page_id) {
         return failure(platform, 'Cần Facebook Page Access Token và Page ID.');
       }
-      const api = new FacebookAPI(normalized.facebook_token);
-      const account = await api.getPageDetails(normalized.facebook_page_id);
-      if (!account) return failure(platform, 'Không đọc được Facebook Page. Kiểm tra token, Page ID và quyền.');
-      if (String(account.id || '').trim() !== normalized.facebook_page_id) {
+      const api = new FacebookPagePublishingAPI(normalized.facebook_token);
+      const account = await api.getPageIdentity(normalized.facebook_page_id);
+      if (!account?.id) return failure(platform, 'Không đọc được Facebook Page. Kiểm tra token, Page ID và quyền.');
+      if (String(account.id).trim() !== normalized.facebook_page_id) {
         return failure(platform, 'Token không trả về đúng Facebook Page ID đã cấu hình.');
       }
       return success(platform, account);
@@ -44,13 +39,10 @@ export async function verifyPlatformConnection(platform, credentials) {
       if (!normalized.instagram_token || !normalized.instagram_user_id) {
         return failure(platform, 'Cần Instagram Access Token và Business/Creator ID.');
       }
-      const api = new InstagramAPI(normalized.instagram_token);
-      const accounts = await api.searchAccounts([], { limit: 1 });
-      const account = Array.isArray(accounts) ? accounts[0] : null;
-      if (!account) return failure(platform, 'Không đọc được tài khoản Instagram. Kiểm tra token và quyền.');
-
-      const remoteId = normalizeRemoteId(account.sourceId || account.id, 'ig_');
-      if (remoteId !== normalized.instagram_user_id) {
+      const api = new InstagramPublishingAPI(normalized.instagram_token);
+      const account = await api.getAccountIdentity(normalized.instagram_user_id);
+      if (!account?.id) return failure(platform, 'Không đọc được tài khoản Instagram. Kiểm tra token, ID và quyền.');
+      if (String(account.id).trim() !== normalized.instagram_user_id) {
         return failure(platform, 'Token Instagram không khớp Business/Creator ID đã cấu hình.');
       }
       return success(platform, account);
