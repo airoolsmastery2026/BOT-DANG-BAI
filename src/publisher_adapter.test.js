@@ -1,4 +1,5 @@
 import { FacebookAPI } from './api_handler';
+import { TikTokContentPostingAPI } from './tiktok_content_posting';
 import {
   MOCK_SCENARIO,
   PUBLISH_MODE,
@@ -11,6 +12,10 @@ jest.mock('./api_handler', () => ({
   FacebookAPI: jest.fn(),
   InstagramAPI: jest.fn(),
   TikTokAPI: jest.fn(),
+}));
+
+jest.mock('./tiktok_content_posting', () => ({
+  TikTokContentPostingAPI: jest.fn(),
 }));
 
 describe('publisher adapter', () => {
@@ -29,6 +34,7 @@ describe('publisher adapter', () => {
     expect(result.scenario).toBe(MOCK_SCENARIO.SUCCESS);
     expect(result.externalPostId).toContain('mock_facebook_post-1');
     expect(FacebookAPI).not.toHaveBeenCalled();
+    expect(TikTokContentPostingAPI).not.toHaveBeenCalled();
   });
 
   test('normalizes unknown mode to live for safety', () => {
@@ -103,5 +109,27 @@ describe('publisher adapter', () => {
     });
 
     expect(publishPost).toHaveBeenCalledWith('page-connected', 'Test', { imageUrl: undefined });
+  });
+
+  test('queries TikTok creator info before live video init', async () => {
+    const creatorInfo = { id: 'creator', name: 'Creator', privacyLevelOptions: ['SELF_ONLY'] };
+    const getCreatorInfo = jest.fn().mockResolvedValue(creatorInfo);
+    const publishVideo = jest.fn().mockResolvedValue({ success: true, publishId: 'tt-1' });
+    TikTokContentPostingAPI.mockImplementation(() => ({ getCreatorInfo, publishVideo }));
+
+    const result = await publishThroughAdapter({
+      platform: 'tiktok',
+      post: { id: 'post-tt', content: 'TikTok test', videoUrl: 'https://example.com/video.mp4' },
+      credentials: { __publisherMode: 'live', tiktok_token: 'tt-token' },
+    });
+
+    expect(TikTokContentPostingAPI).toHaveBeenCalledWith('tt-token');
+    expect(getCreatorInfo).toHaveBeenCalledTimes(1);
+    expect(publishVideo).toHaveBeenCalledWith(
+      'https://example.com/video.mp4',
+      'TikTok test',
+      { privacyLevel: 'SELF_ONLY', creatorInfo },
+    );
+    expect(result.publishId).toBe('tt-1');
   });
 });
