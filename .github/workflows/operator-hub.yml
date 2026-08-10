@@ -1,0 +1,33 @@
+name: Operator Hub CI
+
+on:
+  pull_request:
+    paths:
+      - 'public/operator.html'
+      - 'server/operator-hub.test.js'
+      - '.github/workflows/operator-hub.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'public/operator.html'
+      - 'server/operator-hub.test.js'
+      - '.github/workflows/operator-hub.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: operator-hub-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-hub:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate operator navigation and secret boundary
+        run: node --test server/operator-hub.test.js
