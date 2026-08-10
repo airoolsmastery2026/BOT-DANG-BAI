@@ -87,7 +87,15 @@ const resolveTargetId = (platform, post, credentials) => {
   return '';
 };
 
+const assertVerifiedForLive = (platform, credentials) => {
+  if (credentials.__requireVerification !== true) return;
+  if (credentials.__verifiedPlatforms?.[platform] === true) return;
+  throw new Error(`Tài khoản ${platform} chưa được kiểm tra thành công trong phiên này.`);
+};
+
 const livePublish = async (platform, post, credentials) => {
+  assertVerifiedForLive(platform, credentials);
+
   if (platform === 'facebook') {
     if (!credentials.facebook_token) throw new Error('Thiếu Facebook access token.');
     const pageId = resolveTargetId(platform, post, credentials);
