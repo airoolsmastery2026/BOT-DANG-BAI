@@ -1,0 +1,38 @@
+name: Publishing Worker CI
+
+on:
+  pull_request:
+    paths:
+      - 'server/publishing-worker*.js'
+      - '.github/workflows/publishing-worker.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/publishing-worker*.js'
+      - '.github/workflows/publishing-worker.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publishing-worker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check syntax
+        run: |
+          node --check server/publishing-worker-runtime.js
+          node --check server/publishing-worker-vault.js
+          node --check server/publishing-worker.js
+      - name: Run worker unit tests
+        run: |
+          node --test server/publishing-worker-runtime.test.js
+          node --test server/publishing-worker-vault.test.js
