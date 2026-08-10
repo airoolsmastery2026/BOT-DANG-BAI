@@ -14,11 +14,13 @@ const basePost = (overrides = {}) => ({
   ...overrides,
 });
 
+const facebookCredentials = { facebook_token: 'token', facebook_page_id: 'page-1' };
+
 describe('queue health diagnostics', () => {
   test('reports a healthy scheduled task when requirements are met', () => {
     const result = inspectQueueHealth({
       posts: [basePost()],
-      credentials: { facebook_token: 'token' },
+      credentials: facebookCredentials,
       now: new Date('2026-08-02T00:01:00.000Z').getTime(),
     });
 
@@ -26,7 +28,7 @@ describe('queue health diagnostics', () => {
     expect(result.summary.total).toBe(0);
   });
 
-  test('detects missing platform credentials and media', () => {
+  test('detects missing platform credentials, targets and media', () => {
     const result = inspectQueueHealth({
       posts: [basePost({ platforms: ['instagram', 'tiktok'] })],
       credentials: {},
@@ -34,6 +36,7 @@ describe('queue health diagnostics', () => {
     });
 
     expect(result.summary.byCode.missing_token).toBe(2);
+    expect(result.summary.byCode.missing_target).toBe(1);
     expect(result.summary.byCode.missing_image).toBe(1);
     expect(result.summary.byCode.missing_video).toBe(1);
     expect(result.healthy).toBe(false);
@@ -46,7 +49,7 @@ describe('queue health diagnostics', () => {
         basePost(),
         basePost({ id: 'post-2', status: POST_STATUS.PUBLISHING }),
       ],
-      credentials: { facebook_token: 'token' },
+      credentials: facebookCredentials,
       now,
     });
 
@@ -65,7 +68,7 @@ describe('queue health diagnostics', () => {
           attemptCount: 3,
         }),
       ],
-      credentials: { facebook_token: 'token' },
+      credentials: facebookCredentials,
       now: new Date('2026-08-02T00:01:00.000Z').getTime(),
     });
 
@@ -83,7 +86,12 @@ describe('queue health diagnostics', () => {
           instagram: { success: false, error: 'token expired' },
         },
       })],
-      credentials: { facebook_token: 'token', instagram_token: 'token' },
+      credentials: {
+        facebook_token: 'token',
+        facebook_page_id: 'page-1',
+        instagram_token: 'token',
+        instagram_user_id: 'ig-1',
+      },
       now: new Date('2026-08-02T00:01:00.000Z').getTime(),
     });
 
@@ -97,7 +105,7 @@ describe('queue health diagnostics', () => {
         status: POST_STATUS.SCHEDULED,
         results: { facebook: { success: true } },
       })],
-      credentials: { facebook_token: 'token' },
+      credentials: facebookCredentials,
       now: new Date('2026-08-02T00:01:00.000Z').getTime(),
     });
 
@@ -109,7 +117,7 @@ describe('queue health diagnostics', () => {
       posts: [basePost({
         results: { linkedin: { success: false, error: 'unexpected' } },
       })],
-      credentials: { facebook_token: 'token' },
+      credentials: facebookCredentials,
       now: new Date('2026-08-02T00:01:00.000Z').getTime(),
     });
 
@@ -123,7 +131,7 @@ describe('queue health diagnostics', () => {
         basePost({ attemptCount: MAX_PUBLISH_ATTEMPTS }),
         basePost({ id: 'post-2', status: POST_STATUS.FAILED, attemptCount: MAX_PUBLISH_ATTEMPTS }),
       ],
-      credentials: { facebook_token: 'token' },
+      credentials: facebookCredentials,
       now: new Date('2026-08-02T00:01:00.000Z').getTime(),
     });
 
@@ -139,7 +147,7 @@ describe('queue health diagnostics', () => {
         attemptCount: MAX_PUBLISH_ATTEMPTS,
         deadLetteredAt: '2026-08-02T00:02:00.000Z',
       })],
-      credentials: { facebook_token: 'token' },
+      credentials: facebookCredentials,
       now: new Date('2026-08-02T00:03:00.000Z').getTime(),
     });
 
@@ -151,11 +159,23 @@ describe('queue health diagnostics', () => {
   test('detects dead letter tasks without audit timestamp', () => {
     const result = inspectQueueHealth({
       posts: [basePost({ status: POST_STATUS.DEAD_LETTER })],
-      credentials: { facebook_token: 'token' },
+      credentials: facebookCredentials,
       now: new Date('2026-08-02T00:03:00.000Z').getTime(),
     });
 
     expect(result.summary.byCode.dead_letter_item).toBe(1);
     expect(result.summary.byCode.dead_letter_missing_timestamp).toBe(1);
+  });
+
+  test('mock mode does not report missing live credentials or targets', () => {
+    const result = inspectQueueHealth({
+      posts: [basePost()],
+      credentials: { __publisherMode: 'mock' },
+      now: new Date('2026-08-02T00:01:00.000Z').getTime(),
+    });
+
+    expect(result.mode).toBe('mock');
+    expect(result.summary.byCode.missing_token).toBeUndefined();
+    expect(result.summary.byCode.missing_target).toBeUndefined();
   });
 });
