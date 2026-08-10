@@ -1,4 +1,5 @@
-import { FacebookAPI, InstagramAPI, TikTokAPI } from './api_handler';
+import { FacebookAPI, InstagramAPI } from './api_handler';
+import { TikTokContentPostingAPI } from './tiktok_content_posting';
 import { normalizeCredentials } from './platform_credentials';
 
 const failure = (platform, message) => ({
@@ -57,9 +58,11 @@ export async function verifyPlatformConnection(platform, credentials) {
 
     if (platform === 'tiktok') {
       if (!normalized.tiktok_token) return failure(platform, 'Cần TikTok Access Token.');
-      const api = new TikTokAPI(normalized.tiktok_token);
-      const account = await api.getUserInfo();
-      return account ? success(platform, account) : failure(platform, 'Không đọc được tài khoản TikTok. Kiểm tra token và scope OAuth.');
+      const api = new TikTokContentPostingAPI(normalized.tiktok_token);
+      const account = await api.getCreatorInfo();
+      return account
+        ? success(platform, account)
+        : failure(platform, 'Không đọc được quyền Content Posting của TikTok. Kiểm tra token và scope video.publish.');
     }
 
     return failure(platform, 'Nền tảng chưa được hỗ trợ.');
