@@ -50,6 +50,7 @@ jobs:
           node --test server/publishing-control-runtime.test.js
           node --test server/telegram-control-runtime.test.js
           node --test server/ai-content-runtime.test.js
+          node --test server/ai-content-security.test.js
 
       - name: Run unit tests
         env:
