@@ -1,8 +1,13 @@
-const baseUrl = () => String(process.env.REACT_APP_DHP_PUBLISHING_CONTROL_URL || 'http://127.0.0.1:8792').replace(/\/$/, '');
-const token = () => String(process.env.REACT_APP_DHP_PUBLISHING_CONTROL_TOKEN || process.env.REACT_APP_DHP_MEDIA_INGRESS_TOKEN || '').trim();
+const baseUrl = () => String(process.env.REACT_APP_DHP_PUBLISHING_CONTROL_URL || '').trim().replace(/\/$/, '');
+const token = () => String(process.env.REACT_APP_DHP_PUBLISHING_CONTROL_TOKEN || '').trim();
+
+export const isPublishingControlConfigured = () => Boolean(baseUrl() && token());
 
 const request = async (path, options = {}) => {
-  if (!token()) throw new Error('Publishing Control local chưa có token.');
+  if (!isPublishingControlConfigured()) {
+    throw new Error('Publishing Control local chưa được cấu hình.');
+  }
+
   const requestId = window.crypto?.randomUUID?.() || `req-${Date.now()}`;
   const response = await fetch(`${baseUrl()}${path}`, {
     ...options,
@@ -18,4 +23,10 @@ const request = async (path, options = {}) => {
   return payload.data;
 };
 
-export const getPublishingHealth = () => request('/api/v1/publishing/health');
+export const getPublishingHealth = async () => {
+  if (!isPublishingControlConfigured()) {
+    return { configured: false, scheduler: null };
+  }
+  const data = await request('/api/v1/publishing/health');
+  return { configured: true, ...(data || {}) };
+};
