@@ -1,11 +1,16 @@
 import { SCHEDULER_HANDOFF_STORAGE_KEY } from './scheduler_handoff';
 import { consumeVideoOsHandoff } from './video_os_handoff';
 
-const encodeBase64Url = (value) => Buffer.from(JSON.stringify(value), 'utf8')
-  .toString('base64')
-  .replace(/\+/g, '-')
-  .replace(/\//g, '_')
-  .replace(/=+$/g, '');
+const { TextDecoder, TextEncoder } = require('util');
+global.TextEncoder = global.TextEncoder || TextEncoder;
+global.TextDecoder = global.TextDecoder || TextDecoder;
+
+const encodeBase64Url = (value) => {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let binary = '';
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+};
 
 beforeEach(() => {
   window.localStorage.clear();
