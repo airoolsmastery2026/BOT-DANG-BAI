@@ -1,116 +1,141 @@
-# 🔍 Customer Finder Pro - Ứng dụng Tìm Kiếm Khách Hàng Tự Động
+# BOT ĐĂNG BÀI
 
-**Tìm kiếm, tạo nội dung, lên lịch và vận hành các kênh Facebook, Instagram, TikTok và Zalo Official Account**
+Ứng dụng điều phối nội dung, lên lịch, kiểm thử và phân phối bài đăng mạng xã hội cho hệ sinh thái Đại Hải Phát.
 
----
+## Trạng thái sản phẩm
 
-## 📸 Tính Năng Chính
+Luồng vận hành chính hiện tại:
 
-✅ Kết nối Facebook, Instagram, TikTok bằng token của chính bạn
+```text
+AI / Campaign
+→ Draft / Media Inbox
+→ Scheduler
+→ Publisher Preflight
+→ Queue Runtime
+→ Facebook / Instagram / TikTok
+→ Retry chọn lọc
+→ Dead Letter Queue
+→ Health / Readiness
+```
 
-✅ Chế độ demo tích hợp sẵn — dùng thử giao diện ngay cả khi chưa có token thật
+Ứng dụng có hai chế độ publisher:
 
-✅ Lọc thông minh — theo followers, engagement, từ khóa, địa điểm
+- `MOCK`: kiểm thử miễn phí, không cần token và không gửi dữ liệu ra mạng xã hội.
+- `LIVE`: chỉ chạy khi tài khoản và target cần thiết đã được cấu hình.
 
-✅ Match Score — chấm điểm mức độ phù hợp của từng khách hàng tiềm năng
+## Kết nối tài khoản
 
-✅ Lưu & xuất kết quả — CSV hoặc JSON
+Mở tab **Kết nối** trong ứng dụng.
 
-✅ Tìm kiếm tự động mỗi 5 phút (tuỳ chọn)
+### Facebook
 
-✅ **Bot viết bài tự động** — sinh nội dung theo chủ đề, có tinh chỉnh giọng văn/độ dài/emoji/hashtag/CTA, chọn template hoặc gọi AI
+Cần:
 
-✅ **Lên lịch đăng bài** — đăng ngay hoặc hẹn giờ, lặp lại hàng ngày/hàng tuần, đăng cùng lúc lên nhiều nền tảng
+- Facebook Page Access Token.
+- Facebook Page ID.
 
-✅ **Zalo OA Control** — giao diện kết nối trực tiếp tới Zalo server, gửi ngay, lên lịch, xem hàng đợi và lịch sử
+Ứng dụng kiểm tra token có đọc đúng Page ID đã nhập trước khi coi phép kiểm tra là thành công.
 
-✅ **Zalo server scheduler** — chạy nền bằng Node.js, giữ OA token ở server, retry tối đa 3 lần và không phụ thuộc tab trình duyệt
+### Instagram
 
----
+Cần:
 
-## 💬 Tích hợp Zalo Official Account
+- Instagram Access Token.
+- Instagram Business / Creator ID.
 
-Tab **Zalo OA** hiện sử dụng REST API của `server/zalo-server.js`:
+Ứng dụng kiểm tra tài khoản mà token trả về có khớp ID đã cấu hình.
 
-- Frontend chỉ lưu URL server và API key; không lưu OA Access Token.
-- Kiểm tra trạng thái server và số tin đang chờ.
-- Gửi ngay hoặc lên lịch theo `user_id`.
-- Đồng bộ hàng đợi và lịch sử từ server.
-- Xử lý hàng đợi thủ công hoặc để scheduler tự chạy mỗi 60 giây.
-- Hiển thị số lần retry và lỗi cuối cùng.
+### TikTok
 
-### Chạy scheduler Zalo phía server
+Cần:
 
-Bản server dùng Node.js 18+, không cần cài thêm package:
+- TikTok user access token có scope phù hợp với tác vụ ứng dụng sử dụng.
+
+### Bảo mật credential
+
+Credential nhập tại giao diện hiện chỉ được lưu trong `sessionStorage`:
+
+- không ghi vào repository;
+- không ghi vào `localStorage`;
+- tự mất khi đóng phiên trình duyệt;
+- không đưa secret vào URL handoff.
+
+Đây là mô hình phù hợp cho giai đoạn vận hành nội bộ/kiểm thử. Khi triển khai nhiều người dùng, credential dài hạn phải chuyển sang backend/secret manager.
+
+## Kiểm thử miễn phí
+
+Trong tab **Hàng đợi**, chọn kịch bản MOCK và chạy publisher mà không cần tài khoản thật.
+
+Các kịch bản hiện có:
+
+- thành công;
+- Instagram lỗi;
+- TikTok lỗi;
+- giả lập rate limit `429`;
+- giả lập timeout mạng.
+
+MOCK dùng chung Queue Runtime với LIVE nên kiểm thử được:
+
+- preflight;
+- selective retry;
+- idempotency;
+- retry giới hạn;
+- Dead Letter Queue;
+- Queue Health;
+- trạng thái campaign.
+
+## Live Readiness
+
+Tab **Tổng quan** hiển thị:
+
+- số tài khoản mạng xã hội đủ cấu hình;
+- blocker còn lại trước LIVE;
+- số bài đến hạn/bị preflight chặn;
+- tình trạng Queue Health;
+- trạng thái connector Zalo/LinkedIn.
+
+Nếu chưa có tài khoản, từ Tổng quan hoặc Đăng bài có thể đi thẳng tới **Kết nối**.
+
+## Scheduler và Queue
+
+Scheduler hỗ trợ:
+
+- Facebook, Instagram, TikTok;
+- đăng ngay hoặc hẹn giờ;
+- lặp hàng ngày/hàng tuần;
+- target theo tài khoản đã kết nối;
+- handoff từ campaign và Video OS.
+
+Queue Runtime hỗ trợ:
+
+- selective publishing;
+- selective retry;
+- chống đăng lặp bằng idempotency key;
+- khôi phục tác vụ bị kẹt;
+- tối đa số lần thử;
+- Dead Letter Queue;
+- diagnostics và publisher preflight.
+
+## DHP Media Inbox / Control Plane
+
+Repository có local media ingress để nhận package từ pipeline sản xuất nội dung và có thể đồng bộ package từ DHP Control Plane cloud khi cấu hình server-side credential.
+
+Secret Control Plane không được đưa vào `REACT_APP_*`.
+
+## Zalo và LinkedIn
+
+Hai connector này dùng Node server riêng:
 
 ```bash
-cp .env.example .env
-# Nạp các biến môi trường theo cách phù hợp với hệ điều hành/deployment của bạn
 npm run zalo:server
+npm run linkedin:server
 ```
 
-Các biến quan trọng:
+Các server có health endpoint để Dashboard theo dõi trạng thái.
 
-```env
-ZALO_OA_ACCESS_TOKEN=
-ZALO_SERVER_API_KEY=
-ZALO_SERVER_PORT=8787
-ZALO_ALLOWED_ORIGIN=http://localhost:3000
-```
+## Cài đặt local
 
-Sau khi server chạy, mở tab **Zalo OA** và nhập:
-
-```text
-Server URL: http://localhost:8787
-API key: giá trị ZALO_SERVER_API_KEY
-```
-
-REST API:
-
-```text
-GET    /health
-GET    /api/zalo/messages
-POST   /api/zalo/messages
-POST   /api/zalo/process
-DELETE /api/zalo/messages/:id
-```
-
-Ví dụ tạo tin nhắn:
-
-```bash
-curl -X POST http://localhost:8787/api/zalo/messages \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_SERVER_API_KEY" \
-  -d '{"userId":"ZALO_USER_ID","content":"Xin chào","scheduledTime":"2026-07-30T10:00:00+07:00"}'
-```
-
-Dữ liệu mặc định được lưu tại `server/zalo-messages.json`. Không commit tệp dữ liệu này hoặc token thật lên GitHub.
-
-### Giới hạn bắt buộc
-
-- Đây là **Zalo Official Account OpenAPI**, không phải API đăng bài lên nhật ký cá nhân.
-- OA chỉ gửi được theo phạm vi quyền, chính sách và điều kiện tương tác do Zalo quy định.
-- API key của dashboard vẫn nằm trong trình duyệt của người vận hành; production phải dùng HTTPS, CORS giới hạn và tài khoản quản trị riêng.
-- Trước production cần bổ sung secret manager, database thật, refresh-token flow, webhook, idempotency và audit log.
-
----
-
-## 📤 Đăng Bài Tự Động
-
-1. Kết nối nền tảng ở tab "Tìm khách hàng".
-2. Sang tab "Đăng bài tự động": tạo nội dung, chọn nền tảng, nhập media/target ID và lên lịch.
-3. Scheduler frontend chỉ hoạt động khi tab mở; triển khai worker/server để chạy liên tục.
-
-### ⚠️ Giới hạn nền tảng
-
-- **Facebook**: cần quyền `pages_manage_posts`, chỉ đăng lên Page bạn quản lý.
-- **Instagram**: cần quyền `instagram_content_publish`, bắt buộc có ảnh/video công khai.
-- **TikTok**: cần quyền `video.publish`; Direct Post phụ thuộc trạng thái xét duyệt ứng dụng.
-- **Zalo OA**: chỉ tương tác với người dùng hợp lệ trong phạm vi Official Account.
-
----
-
-## 🚀 Bắt Đầu Nhanh
+Yêu cầu Node.js 20.x và npm 10.x.
 
 ```bash
 git clone https://github.com/airoolsmastery2026/BOT-DANG-BAI.git
@@ -119,55 +144,66 @@ npm install
 npm start
 ```
 
-Truy cập `http://localhost:3000`.
-
----
-
-## ✅ Kiểm tra chất lượng
-
-GitHub Actions tự động chạy khi mở Pull Request hoặc push vào `main`:
-
-```bash
-npm ci
-node --check server/zalo-server.js
-npm run build
-```
-
----
-
-## 📁 Cấu Trúc Dự Án
+Mặc định CRA chạy tại:
 
 ```text
-customer-finder-pro/
-├── .github/workflows/ci.yml
-├── public/
-│   └── index.html
-├── src/
-│   ├── App.jsx
-│   ├── AdvancedCustomerFinder.jsx
-│   ├── PostScheduler.jsx
-│   ├── ZaloControl.jsx
-│   ├── zalo_server_api.js
-│   ├── zalo_api.js
-│   ├── api_handler.js
-│   ├── content_generator.js
-│   ├── post_manager.js
-│   ├── utils.js
-│   ├── index.js
-│   └── index.css
-├── server/
-│   ├── scheduler-example.js
-│   └── zalo-server.js
-├── SETUP_GUIDE.md
-├── package.json
-├── tailwind.config.js
-├── postcss.config.js
-├── .env.example
-└── README.md
+http://localhost:3000
 ```
 
----
+## Kiểm tra chất lượng
 
-## 📄 License
+```bash
+npm test -- --runInBand
+npm run build
+npm run lint
+```
+
+CI trên GitHub chạy khi push `main` hoặc mở Pull Request và thực hiện:
+
+- kiểm tra syntax các server đang dùng;
+- test bridge/media sync;
+- unit test frontend;
+- production build.
+
+## File quan trọng
+
+```text
+src/
+├── App.jsx
+├── PlatformConnections.jsx
+├── platform_credentials.js
+├── platform_connection_service.js
+├── SystemDashboard.jsx
+├── system_readiness.js
+├── CampaignStudio.jsx
+├── CampaignDrafts.jsx
+├── PostScheduler.jsx
+├── post_manager.js
+├── publisher_adapter.js
+├── publisher_preflight.js
+├── queue_health.js
+├── QueueRuntimeControls.jsx
+├── QueueMonitor.jsx
+├── DhpMediaInbox.jsx
+└── video_os_handoff.js
+
+server/
+├── zalo-server.js
+├── linkedin-server.js
+├── dhp-media-ingress.js
+└── dhp-social-lead-bridge.js
+```
+
+## Nguyên tắc vận hành
+
+1. Dùng MOCK để test trước.
+2. Kết nối và kiểm tra tài khoản tại tab **Kết nối**.
+3. Xử lý hết blocker tại **Tổng quan**.
+4. Chỉ sau đó mới dùng **Đăng LIVE**.
+5. Không commit token, client secret, API key hoặc dữ liệu production vào GitHub.
+
+Chi tiết cấu hình xem `SETUP_GUIDE.md`.
+
+## License
 
 MIT
