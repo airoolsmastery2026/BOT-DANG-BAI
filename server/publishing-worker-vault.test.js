@@ -13,6 +13,7 @@ const {
 } = require('./publishing-worker-vault');
 
 const SECRET = 'this-is-a-long-random-test-secret-123456789';
+const YOUTUBE_CHANNEL = 'UCabcdefghijklmnopqrstuv';
 
 test('normalizes required credential fields per platform', () => {
   assert.deepEqual(normalizeCredentials('facebook', {
@@ -37,9 +38,17 @@ test('normalizes required credential fields per platform', () => {
     accessToken: 'pin-token',
     boardId: '987654321',
   });
+  assert.deepEqual(normalizeCredentials('youtube', {
+    accessToken: ' yt-token ',
+    channelId: ` ${YOUTUBE_CHANNEL} `,
+  }), {
+    accessToken: 'yt-token',
+    channelId: YOUTUBE_CHANNEL,
+  });
   assert.throws(() => normalizeCredentials('instagram', { accessToken: 'token' }), /Business\/Creator ID/);
   assert.throws(() => normalizeCredentials('linkedin', { accessToken: 'token', authorUrn: 'bad' }), /Author URN/);
   assert.throws(() => normalizeCredentials('pinterest', { accessToken: 'token', boardId: 'bad' }), /Board ID/);
+  assert.throws(() => normalizeCredentials('youtube', { accessToken: 'token', channelId: 'bad' }), /Channel ID/);
 });
 
 test('encrypts and decrypts JSON with authenticated encryption', () => {
@@ -57,14 +66,16 @@ test('stores credentials encrypted at rest and lists only metadata', () => {
   vault.set('facebook', { accessToken: 'fb-secret-token', pageId: 'page-1' });
   vault.set('linkedin', { accessToken: 'li-secret-token', authorUrn: 'urn:li:person:123' });
   vault.set('pinterest', { accessToken: 'pin-secret-token', boardId: '987654321' });
+  vault.set('youtube', { accessToken: 'yt-secret-token', channelId: YOUTUBE_CHANNEL });
 
   const raw = fs.readFileSync(filePath, 'utf8');
-  assert.doesNotMatch(raw, /fb-secret-token|li-secret-token|pin-secret-token/);
-  assert.doesNotMatch(raw, /page-1|urn:li:person:123|987654321/);
+  assert.doesNotMatch(raw, /fb-secret-token|li-secret-token|pin-secret-token|yt-secret-token/);
+  assert.doesNotMatch(raw, /page-1|urn:li:person:123|987654321|UCabcdefghijklmnopqrstuv/);
   assert.deepEqual(vault.get('facebook'), { accessToken: 'fb-secret-token', pageId: 'page-1' });
   assert.deepEqual(vault.get('linkedin'), { accessToken: 'li-secret-token', authorUrn: 'urn:li:person:123' });
   assert.deepEqual(vault.get('pinterest'), { accessToken: 'pin-secret-token', boardId: '987654321' });
-  assert.deepEqual(vault.list().map((item) => item.platform).sort(), ['facebook', 'linkedin', 'pinterest']);
+  assert.deepEqual(vault.get('youtube'), { accessToken: 'yt-secret-token', channelId: YOUTUBE_CHANNEL });
+  assert.deepEqual(vault.list().map((item) => item.platform).sort(), ['facebook', 'linkedin', 'pinterest', 'youtube']);
   assert.equal(vault.remove('linkedin'), true);
   assert.equal(vault.get('linkedin'), null);
 });
