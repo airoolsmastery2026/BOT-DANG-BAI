@@ -24,6 +24,7 @@ const REQUIRED_FILES = [
   'src/campaign_audit_log.js',
   'src/ai_content_client.js',
   'server/ai-content-server.js',
+  'server/publishing-control-runtime.js',
   'server/publishing-control-server.js',
   'server/telegram-control.js',
   'server/publishing-worker-runtime.js',
@@ -92,13 +93,19 @@ test('persistent worker fails closed and reports provider verification health', 
   const runtime = read('server/publishing-worker-runtime.js');
   const vault = read('server/publishing-worker-vault.js');
   const worker = read('server/publishing-worker.js');
+  const control = read('server/publishing-control-runtime.js');
   const linkedin = read('server/publishing-worker-linkedin.js');
   const youtube = read('server/publishing-worker-youtube.js');
   assert.match(runtime, /JOB_STORE_CORRUPT/);
   assert.match(runtime, /function replaceJob/);
   assert.match(vault, /VAULT_CORRUPT/);
   assert.match(vault, /recordVerification/);
+  assert.match(vault, /ACCOUNT_NOT_VERIFIED/);
+  assert.match(vault, /getVerified/);
   assert.match(worker, /verifyAndRecordPlatform/);
+  assert.match(worker, /vault\.assertVerified\(job\.platforms\)/);
+  assert.match(worker, /resolveVerifiedTarget/);
+  assert.match(control, /CONTROL_STATE_CORRUPT/);
   assert.match(linkedin, /api\.linkedin\.com\/v2\/me/);
   assert.match(linkedin, /api\.linkedin\.com\/rest\/organizations/);
   assert.match(youtube, /UNSAFE_SOURCE_URL/);

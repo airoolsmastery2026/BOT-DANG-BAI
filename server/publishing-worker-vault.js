@@ -122,6 +122,39 @@ function createCredentialVault({ filePath, secret }) {
     return normalizeCredentials(platform, decryptJson(entry.encrypted, secret));
   };
 
+  const assertVerifiedEntry = (platform, entry) => {
+    if (!entry?.encrypted) {
+      const error = new Error(`${platform}: chưa có credential trong worker vault.`);
+      error.code = 'ACCOUNT_NOT_CONFIGURED';
+      error.retryable = false;
+      throw error;
+    }
+    if (entry?.verification?.status !== 'verified') {
+      const error = new Error(`${platform}: credential chưa được xác minh với nhà cung cấp.`);
+      error.code = 'ACCOUNT_NOT_VERIFIED';
+      error.retryable = false;
+      throw error;
+    }
+  };
+
+  const assertVerified = (platforms) => {
+    const requested = [...new Set((Array.isArray(platforms) ? platforms : [platforms])
+      .map((platform) => clean(platform, 40).toLowerCase())
+      .filter(Boolean))];
+    const vault = readVaultFile(filePath);
+    requested.forEach((platform) => {
+      assertVerifiedEntry(platform, vault.accounts[platform]);
+    });
+    return true;
+  };
+
+  const getVerified = (platform) => {
+    const vault = readVaultFile(filePath);
+    const entry = vault.accounts[platform];
+    assertVerifiedEntry(platform, entry);
+    return normalizeCredentials(platform, decryptJson(entry.encrypted, secret));
+  };
+
   const remove = (platform) => {
     const vault = readVaultFile(filePath);
     const existed = Boolean(vault.accounts[platform]);
@@ -157,7 +190,7 @@ function createCredentialVault({ filePath, secret }) {
     }));
   };
 
-  return { get, list, recordVerification, remove, set };
+  return { assertVerified, get, getVerified, list, recordVerification, remove, set };
 }
 
 module.exports = {

@@ -16,6 +16,7 @@ const {
   parseStoredJobs,
   recoverStuckJobs,
   replaceJob,
+  resolveVerifiedTarget,
   requeueJob,
   retryJob,
   summarizeJobs,
@@ -23,6 +24,7 @@ const {
 const { createCredentialVault } = require('./publishing-worker-vault');
 const { createLinkedInAdapter } = require('./publishing-worker-linkedin');
 const { DEFAULT_MAX_SOURCE_BYTES, createYouTubeAdapter } = require('./publishing-worker-youtube');
+const { createPublishingControlRuntime } = require('./publishing-control-runtime');
 
 const HOST = String(process.env.DHP_PUBLISHING_WORKER_HOST || '127.0.0.1').trim();
 const PORT = Number(process.env.DHP_PUBLISHING_WORKER_PORT || 8794);
@@ -56,6 +58,7 @@ const youtube = createYouTubeAdapter({
   timeoutMs: REQUEST_TIMEOUT_MS,
   maxSourceBytes: YOUTUBE_MAX_SOURCE_BYTES,
 });
+const publishingControl = createPublishingControlRuntime({ statePath: CONTROL_PATH });
 let activeProcessing = null;
 let stopping = false;
 
@@ -81,15 +84,7 @@ const readJobs = () => {
 
 const writeJobs = (jobs) => atomicWriteJson(STORE_PATH, jobs);
 
-const schedulerPaused = () => {
-  try {
-    if (!fs.existsSync(CONTROL_PATH)) return false;
-    const state = JSON.parse(fs.readFileSync(CONTROL_PATH, 'utf8'));
-    return state?.scheduler?.paused === true || state?.paused === true;
-  } catch {
-    return false;
-  }
-};
+const schedulerPaused = () => publishingControl.getState().paused;
 
 const json = (res, status, body) => {
   res.writeHead(status, {
@@ -155,8 +150,7 @@ const metaHeaders = (token, form = false) => ({
 });
 
 const publishFacebook = async (job, credentials) => {
-  const pageId = job.targetIds.facebook || credentials.pageId;
-  if (!pageId) throw new Error('Facebook Page ID chưa được cấu hình.');
+  const pageId = resolveVerifiedTarget('facebook', job.targetIds.facebook, credentials.pageId);
   const imageUrl = String(job.imageUrl || '').trim();
   const endpoint = imageUrl ? 'photos' : 'feed';
   const body = new URLSearchParams(imageUrl
@@ -173,8 +167,7 @@ const publishFacebook = async (job, credentials) => {
 };
 
 const publishInstagram = async (job, credentials) => {
-  const userId = job.targetIds.instagram || credentials.userId;
-  if (!userId) throw new Error('Instagram Business/Creator ID chưa được cấu hình.');
+  const userId = resolveVerifiedTarget('instagram', job.targetIds.instagram, credentials.userId);
   if (!/^https?:\/\//i.test(job.imageUrl)) throw new Error('Instagram cần image URL HTTP/HTTPS công khai.');
 
   const containerResponse = await fetch(`https://graph.facebook.com/${META_VERSION}/${encodeURIComponent(userId)}/media`, {
@@ -381,8 +374,7 @@ const verifyAndRecordPlatform = async (platform) => {
 
 const publishPlatform = async (platform, job) => {
   try {
-    const credentials = vault.get(platform);
-    if (!credentials) throw new Error(`${platform}: chưa có credential trong worker vault.`);
+    const credentials = vault.getVerified(platform);
     if (platform === 'facebook') return await publishFacebook(job, credentials);
     if (platform === 'instagram') return await publishInstagram(job, credentials);
     if (platform === 'tiktok') return await publishTikTok(job, credentials);
@@ -502,6 +494,7 @@ const server = http.createServer(async (req, res) => {
       const job = normalizeJob({ ...body, idempotencyKey: idempotencyKey || body.idempotencyKey });
       const jobs = readJobs();
       assertNoDuplicate(jobs, job);
+      vault.assertVerified(job.platforms);
       jobs.push(job);
       writeJobs(jobs);
       return json(res, 201, { data: job });
@@ -538,13 +531,15 @@ const server = http.createServer(async (req, res) => {
 
     return json(res, 404, { error: 'Not found' });
   } catch (error) {
-    const status = error?.code === 'DUPLICATE_JOB' ? 409
-      : ['JOB_STORE_CORRUPT', 'VAULT_CORRUPT'].includes(error?.code) ? 500
-      : error?.message === 'Payload quá lớn.' ? 413
-        : error?.message === 'JSON không hợp lệ.' ? 400
-          : 400;
+    const status = ['DUPLICATE_JOB', 'ACCOUNT_NOT_CONFIGURED', 'ACCOUNT_NOT_VERIFIED', 'TARGET_ACCOUNT_MISMATCH'].includes(error?.code) ? 409
+      : error?.code === 'CONTROL_STATE_CORRUPT' ? 503
+        : ['JOB_STORE_CORRUPT', 'VAULT_CORRUPT'].includes(error?.code) ? 500
+          : error?.message === 'Payload quá lớn.' ? 413
+            : error?.message === 'JSON không hợp lệ.' ? 400
+              : 400;
     return json(res, status, {
       error: error instanceof Error ? error.message : String(error),
+      ...(error?.code ? { errorCode: error.code } : {}),
       ...(error?.existingJobId ? { existingJobId: error.existingJobId } : {}),
     });
   }

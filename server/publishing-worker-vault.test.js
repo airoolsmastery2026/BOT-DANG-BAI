@@ -78,8 +78,18 @@ test('stores credentials encrypted at rest and lists only metadata', () => {
   assert.deepEqual(vault.get('youtube'), { accessToken: 'yt-secret-token', channelId: YOUTUBE_CHANNEL });
   assert.deepEqual(vault.list().map((item) => item.platform).sort(), ['facebook', 'linkedin', 'pinterest', 'youtube']);
   assert.equal(vault.list().find((item) => item.platform === 'facebook').verificationStatus, 'unverified');
+  assert.throws(
+    () => vault.getVerified('facebook'),
+    (error) => error.code === 'ACCOUNT_NOT_VERIFIED' && error.retryable === false,
+  );
+  assert.throws(
+    () => vault.assertVerified('instagram'),
+    (error) => error.code === 'ACCOUNT_NOT_CONFIGURED' && error.retryable === false,
+  );
   const verified = vault.recordVerification('facebook', { ok: true });
   assert.equal(verified.status, 'verified');
+  assert.equal(vault.assertVerified(['facebook']), true);
+  assert.deepEqual(vault.getVerified('facebook'), { accessToken: 'fb-secret-token', pageId: 'page-1' });
   assert.equal(vault.list().find((item) => item.platform === 'facebook').verificationStatus, 'verified');
   assert.ok(vault.list().find((item) => item.platform === 'facebook').lastVerifiedAt);
   vault.recordVerification('pinterest', { ok: false, errorCode: 'HTTP_401' });
@@ -97,6 +107,7 @@ test('stores credentials encrypted at rest and lists only metadata', () => {
   );
   vault.set('facebook', { accessToken: 'new-secret-token', pageId: 'page-1' });
   assert.equal(vault.list().find((item) => item.platform === 'facebook').verificationStatus, 'unverified');
+  assert.throws(() => vault.getVerified('facebook'), (error) => error.code === 'ACCOUNT_NOT_VERIFIED');
   assert.equal(vault.remove('linkedin'), true);
   assert.equal(vault.get('linkedin'), null);
 });

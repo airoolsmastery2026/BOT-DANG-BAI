@@ -14,6 +14,7 @@ const {
   parseStoredJobs,
   recoverStuckJobs,
   replaceJob,
+  resolveVerifiedTarget,
   requeueJob,
   retryJob,
   summarizeJobs,
@@ -29,15 +30,23 @@ const baseJob = (overrides = {}) => normalizeJob({
 }, { now: new Date('2026-08-09T23:00:00.000Z').getTime() });
 
 test('normalizes supported platforms and creates idempotency key', () => {
-  const job = baseJob({ platforms: ['Facebook', 'facebook', 'LinkedIn', 'Pinterest', 'YouTube', 'unknown'], videoUrl: 'https://cdn.example/video.mp4' });
+  const job = baseJob({
+    platforms: ['Facebook', 'facebook', 'LinkedIn', 'Pinterest', 'YouTube', 'unknown'],
+    imageUrl: 'https://cdn.example/image.jpg',
+    videoUrl: 'https://cdn.example/video.mp4',
+  });
   assert.deepEqual(job.platforms, ['facebook', 'linkedin', 'pinterest', 'youtube']);
   assert.equal(job.status, JOB_STATUS.SCHEDULED);
   assert.equal(job.attemptCount, 0);
   assert.equal(job.idempotencyKey.length, 64);
 });
 
-test('YouTube jobs require video URL and default to private', () => {
-  assert.throws(() => baseJob({ platforms: ['youtube'] }), /YouTube job cần video URL/);
+test('media platforms require credential-free HTTP/HTTPS source URLs', () => {
+  assert.throws(() => baseJob({ platforms: ['instagram'] }), /Instagram\/Pinterest job cần image URL/);
+  assert.throws(() => baseJob({ platforms: ['pinterest'], imageUrl: 'https://user:pass@cdn.example/image.jpg' }), /không chứa credential/);
+  assert.throws(() => baseJob({ platforms: ['tiktok'] }), /TikTok\/YouTube job cần video URL/);
+  assert.throws(() => baseJob({ platforms: ['youtube'], videoUrl: 'file:///tmp/video.mp4' }), /TikTok\/YouTube job cần video URL/);
+
   const job = baseJob({
     platforms: ['youtube'],
     videoUrl: 'https://cdn.example/short.mp4',
@@ -62,6 +71,25 @@ test('rejects duplicate active idempotency key', () => {
   assert.throws(() => assertNoDuplicate([job], { ...job, id: 'job-2' }), /trùng idempotency/i);
 });
 
+test('keeps idempotency reserved for dead-letter jobs and allows cancelled jobs to be replaced', () => {
+  const dead = baseJob({ status: JOB_STATUS.DEAD_LETTER });
+  assert.throws(
+    () => assertNoDuplicate([dead], { ...dead, id: 'job-2', status: JOB_STATUS.SCHEDULED }),
+    (error) => error.code === 'DUPLICATE_JOB' && error.existingJobId === 'job-1',
+  );
+  const cancelled = baseJob({ status: JOB_STATUS.CANCELLED });
+  assert.doesNotThrow(() => assertNoDuplicate([cancelled], { ...cancelled, id: 'job-2', status: JOB_STATUS.SCHEDULED }));
+});
+
+test('binds Facebook and Instagram jobs to the provider-verified target', () => {
+  assert.equal(resolveVerifiedTarget('facebook', '', 'page-1'), 'page-1');
+  assert.equal(resolveVerifiedTarget('instagram', 'user-1', 'user-1'), 'user-1');
+  assert.throws(
+    () => resolveVerifiedTarget('facebook', 'page-2', 'page-1'),
+    (error) => error.code === 'TARGET_ACCOUNT_MISMATCH' && error.retryable === false,
+  );
+});
+
 test('selects only due scheduled jobs in order', () => {
   const jobs = [
     baseJob({ id: 'future', scheduledTime: '2026-08-10T03:00:00.000Z' }),
@@ -74,7 +102,7 @@ test('selects only due scheduled jobs in order', () => {
 });
 
 test('merges platform results and keeps only failed platform pending', () => {
-  const job = markPublishing(baseJob({ platforms: ['facebook', 'instagram'] }), { now: 1000 });
+  const job = markPublishing(baseJob({ platforms: ['facebook', 'instagram'], imageUrl: 'https://cdn.example/image.jpg' }), { now: 1000 });
   const partial = mergePublishResults(job, {
     facebook: { success: true, externalPostId: 'fb-1' },
     instagram: { success: false, error: 'temporary' },
@@ -92,6 +120,7 @@ test('merges platform results and keeps only failed platform pending', () => {
 test('polling-only platform does not consume retry budget', () => {
   const polling = baseJob({
     platforms: ['tiktok'],
+    videoUrl: 'https://cdn.example/video.mp4',
     status: JOB_STATUS.SCHEDULED,
     attemptCount: 1,
     results: {
@@ -146,6 +175,7 @@ test('strict stored-job parsing fails closed instead of silently dropping corrup
 test('manual replay restores a dead-letter job without republishing successful platforms', () => {
   const dead = baseJob({
     platforms: ['facebook', 'instagram'],
+    imageUrl: 'https://cdn.example/image.jpg',
     status: JOB_STATUS.DEAD_LETTER,
     attemptCount: MAX_ATTEMPTS,
     deadLetteredAt: '2026-08-10T00:30:00.000Z',

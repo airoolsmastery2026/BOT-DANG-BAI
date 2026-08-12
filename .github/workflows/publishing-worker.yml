@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - 'server/publishing-worker*.js'
+      - 'server/publishing-control-runtime.js'
       - '.github/workflows/publishing-worker.yml'
   push:
     branches: [main]
     paths:
       - 'server/publishing-worker*.js'
+      - 'server/publishing-control-runtime.js'
       - '.github/workflows/publishing-worker.yml'
 
 permissions:
@@ -31,6 +33,7 @@ jobs:
         run: |
           node --check server/publishing-worker-runtime.js
           node --check server/publishing-worker-vault.js
+          node --check server/publishing-control-runtime.js
           node --check server/publishing-worker-linkedin.js
           node --check server/publishing-worker-youtube.js
           node --check server/publishing-worker.js
@@ -38,6 +41,7 @@ jobs:
         run: |
           node --test server/publishing-worker-runtime.test.js
           node --test server/publishing-worker-vault.test.js
+          node --test server/publishing-control-runtime.test.js
           node --test server/publishing-worker-linkedin.test.js
           node --test server/publishing-worker-youtube.test.js
           node --test server/publishing-worker-admin.test.js

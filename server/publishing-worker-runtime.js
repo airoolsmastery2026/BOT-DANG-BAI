@@ -36,6 +36,28 @@ const normalizePrivacyStatus = (value) => {
   return ['private', 'unlisted', 'public'].includes(status) ? status : 'private';
 };
 
+const isHttpMediaUrl = (value) => {
+  try {
+    const url = new URL(clean(value, 2000));
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+};
+
+function resolveVerifiedTarget(platform, requestedId, verifiedId) {
+  const requested = clean(requestedId, 200);
+  const verified = clean(verifiedId, 200);
+  if (!verified) throw new Error(`${platform}: tài khoản trong vault thiếu target ID.`);
+  if (requested && requested !== verified) {
+    const error = new Error(`${platform}: target ID không khớp tài khoản đã xác minh.`);
+    error.code = 'TARGET_ACCOUNT_MISMATCH';
+    error.retryable = false;
+    throw error;
+  }
+  return verified;
+}
+
 function isPlatformApiError(errorField) {
   if (!errorField) return false;
   if (typeof errorField === 'string') return !['ok', '0'].includes(errorField.trim().toLowerCase());
@@ -66,11 +88,16 @@ function normalizeJob(input, { now = Date.now(), existing = false } = {}) {
   const content = clean(input.content, 5000);
   const platforms = normalizePlatforms(input.platforms);
   const scheduled = new Date(input.scheduledTime);
+  const imageUrl = clean(input.imageUrl, 2000);
+  const videoUrl = clean(input.videoUrl, 2000);
   if (!content) throw new Error('Publishing job thiếu nội dung.');
   if (!platforms.length) throw new Error('Publishing job thiếu nền tảng được hỗ trợ.');
   if (Number.isNaN(scheduled.getTime())) throw new Error('Publishing job có thời gian không hợp lệ.');
-  if (platforms.includes('youtube') && !/^https?:\/\//i.test(clean(input.videoUrl, 2000))) {
-    throw new Error('YouTube job cần video URL HTTP/HTTPS công khai.');
+  if (platforms.some((platform) => ['instagram', 'pinterest'].includes(platform)) && !isHttpMediaUrl(imageUrl)) {
+    throw new Error('Instagram/Pinterest job cần image URL HTTP/HTTPS công khai không chứa credential.');
+  }
+  if (platforms.some((platform) => ['tiktok', 'youtube'].includes(platform)) && !isHttpMediaUrl(videoUrl)) {
+    throw new Error('TikTok/YouTube job cần video URL HTTP/HTTPS công khai không chứa credential.');
   }
 
   const results = normalizeResults(input.results, platforms);
@@ -91,8 +118,8 @@ function normalizeJob(input, { now = Date.now(), existing = false } = {}) {
     platforms,
     pendingPlatforms,
     scheduledTime: scheduled.toISOString(),
-    imageUrl: clean(input.imageUrl, 2000),
-    videoUrl: clean(input.videoUrl, 2000),
+    imageUrl,
+    videoUrl,
     privacyStatus: normalizePrivacyStatus(input.privacyStatus),
     targetIds: normalizeTargetIds(input.targetIds),
     status,
@@ -128,7 +155,7 @@ function parseStoredJobs(value) {
 function assertNoDuplicate(jobs, job) {
   const duplicate = jobs.find((item) => (
     item.idempotencyKey === job.idempotencyKey
-    && ![JOB_STATUS.CANCELLED, JOB_STATUS.DEAD_LETTER].includes(item.status)
+    && item.status !== JOB_STATUS.CANCELLED
   ));
   if (duplicate) {
     const error = new Error('Publishing job trùng idempotency key.');
@@ -302,6 +329,7 @@ module.exports = {
   parseStoredJobs,
   recoverStuckJobs,
   replaceJob,
+  resolveVerifiedTarget,
   requeueJob,
   retryJob,
   summarizeJobs,

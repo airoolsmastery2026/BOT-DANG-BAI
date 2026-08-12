@@ -24,15 +24,22 @@ test('publishing runtime persists pause/resume state without creating a second q
   assert.equal(resumed.lastCommandId, 'cmd-2');
 });
 
-test('runtime state is bounded and fail-safe on invalid files', () => {
+test('runtime fails closed and preserves an invalid control-state file', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dhp-publishing-control-'));
   const statePath = path.join(dir, 'state.json');
   fs.writeFileSync(statePath, '{bad json', 'utf8');
   const runtime = createPublishingControlRuntime({ statePath });
-  assert.deepEqual(runtime.getState(), {
-    paused: false,
-    updatedAt: null,
-    updatedBy: null,
-    lastCommandId: null,
-  });
+
+  assert.throws(() => runtime.getState(), (error) => error.code === 'CONTROL_STATE_CORRUPT');
+  assert.throws(() => runtime.resume({ commandId: 'cmd-recover' }), (error) => error.code === 'CONTROL_STATE_CORRUPT');
+  assert.equal(fs.readFileSync(statePath, 'utf8'), '{bad json');
+});
+
+test('runtime rejects a parseable state without an explicit paused boolean', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dhp-publishing-control-'));
+  const statePath = path.join(dir, 'state.json');
+  fs.writeFileSync(statePath, JSON.stringify({ updatedAt: new Date().toISOString() }), 'utf8');
+  const runtime = createPublishingControlRuntime({ statePath });
+
+  assert.throws(() => runtime.getState(), (error) => error.code === 'CONTROL_STATE_CORRUPT');
 });
