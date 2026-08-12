@@ -47,6 +47,7 @@ test('normalizes required credential fields per platform', () => {
   });
   assert.throws(() => normalizeCredentials('instagram', { accessToken: 'token' }), /Business\/Creator ID/);
   assert.throws(() => normalizeCredentials('linkedin', { accessToken: 'token', authorUrn: 'bad' }), /Author URN/);
+  assert.throws(() => normalizeCredentials('linkedin', { accessToken: 'token', authorUrn: 'urn:li:organization:not-a-number' }), /Author URN/);
   assert.throws(() => normalizeCredentials('pinterest', { accessToken: 'token', boardId: 'bad' }), /Board ID/);
   assert.throws(() => normalizeCredentials('youtube', { accessToken: 'token', channelId: 'bad' }), /Channel ID/);
 });
@@ -76,8 +77,42 @@ test('stores credentials encrypted at rest and lists only metadata', () => {
   assert.deepEqual(vault.get('pinterest'), { accessToken: 'pin-secret-token', boardId: '987654321' });
   assert.deepEqual(vault.get('youtube'), { accessToken: 'yt-secret-token', channelId: YOUTUBE_CHANNEL });
   assert.deepEqual(vault.list().map((item) => item.platform).sort(), ['facebook', 'linkedin', 'pinterest', 'youtube']);
+  assert.equal(vault.list().find((item) => item.platform === 'facebook').verificationStatus, 'unverified');
+  const verified = vault.recordVerification('facebook', { ok: true });
+  assert.equal(verified.status, 'verified');
+  assert.equal(vault.list().find((item) => item.platform === 'facebook').verificationStatus, 'verified');
+  assert.ok(vault.list().find((item) => item.platform === 'facebook').lastVerifiedAt);
+  vault.recordVerification('pinterest', { ok: false, errorCode: 'HTTP_401' });
+  assert.deepEqual(
+    vault.list().find((item) => item.platform === 'pinterest'),
+    {
+      platform: 'pinterest',
+      configured: true,
+      updatedAt: vault.list().find((item) => item.platform === 'pinterest').updatedAt,
+      verificationStatus: 'error',
+      lastVerificationAttemptAt: vault.list().find((item) => item.platform === 'pinterest').lastVerificationAttemptAt,
+      lastVerifiedAt: null,
+      verificationErrorCode: 'HTTP_401',
+    },
+  );
+  vault.set('facebook', { accessToken: 'new-secret-token', pageId: 'page-1' });
+  assert.equal(vault.list().find((item) => item.platform === 'facebook').verificationStatus, 'unverified');
   assert.equal(vault.remove('linkedin'), true);
   assert.equal(vault.get('linkedin'), null);
+});
+
+test('refuses to replace a corrupt vault with an empty account set', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dhp-worker-vault-corrupt-'));
+  const filePath = path.join(directory, 'vault.json');
+  fs.writeFileSync(filePath, '{not-json');
+  const vault = createCredentialVault({ filePath, secret: SECRET });
+
+  assert.throws(() => vault.list(), (error) => error.code === 'VAULT_CORRUPT');
+  assert.throws(
+    () => vault.set('facebook', { accessToken: 'token', pageId: 'page-1' }),
+    (error) => error.code === 'VAULT_CORRUPT',
+  );
+  assert.equal(fs.readFileSync(filePath, 'utf8'), '{not-json');
 });
 
 test('rejects weak vault master secret', () => {

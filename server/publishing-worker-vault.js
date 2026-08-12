@@ -32,7 +32,7 @@ function normalizeCredentials(platform, value) {
   if (!normalized.accessToken) throw new Error(`${platform}: thiếu access token.`);
   if (platform === 'facebook' && !normalized.pageId) throw new Error('facebook: thiếu Page ID.');
   if (platform === 'instagram' && !normalized.userId) throw new Error('instagram: thiếu Business/Creator ID.');
-  if (platform === 'linkedin' && !/^urn:li:(person|organization):/i.test(normalized.authorUrn)) {
+  if (platform === 'linkedin' && !/^urn:li:(?:person:[^:]+|organization:\d+)$/i.test(normalized.authorUrn)) {
     throw new Error('linkedin: thiếu hoặc sai Author URN.');
   }
   if (platform === 'pinterest' && !/^\d+$/.test(normalized.boardId)) {
@@ -75,14 +75,19 @@ function decryptJson(record, secret) {
 }
 
 function readVaultFile(filePath) {
+  if (!fs.existsSync(filePath)) return { version: VERSION, accounts: {} };
   try {
-    if (!fs.existsSync(filePath)) return { version: VERSION, accounts: {} };
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    return parsed && typeof parsed === 'object' && parsed.accounts && typeof parsed.accounts === 'object'
-      ? parsed
-      : { version: VERSION, accounts: {} };
-  } catch {
-    return { version: VERSION, accounts: {} };
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+      || !parsed.accounts || typeof parsed.accounts !== 'object' || Array.isArray(parsed.accounts)) {
+      throw new Error('Credential vault schema không hợp lệ.');
+    }
+    return parsed;
+  } catch (cause) {
+    const error = new Error('Credential vault bị hỏng; worker từ chối ghi đè để bảo toàn dữ liệu.');
+    error.code = 'VAULT_CORRUPT';
+    error.cause = cause;
+    throw error;
   }
 }
 
@@ -104,6 +109,7 @@ function createCredentialVault({ filePath, secret }) {
     vault.accounts[platform] = {
       encrypted: encryptJson(normalized, secret),
       updatedAt: new Date().toISOString(),
+      verification: { status: 'unverified', checkedAt: null, errorCode: null },
     };
     writeVaultFile(filePath, vault);
     return { platform, configured: true, updatedAt: vault.accounts[platform].updatedAt };
@@ -124,16 +130,34 @@ function createCredentialVault({ filePath, secret }) {
     return existed;
   };
 
+  const recordVerification = (platform, { ok, errorCode = null } = {}) => {
+    const vault = readVaultFile(filePath);
+    const entry = vault.accounts[platform];
+    if (!entry?.encrypted) throw new Error(`${platform}: chưa có credential trong worker vault.`);
+    const checkedAt = new Date().toISOString();
+    entry.verification = {
+      status: ok === true ? 'verified' : 'error',
+      checkedAt,
+      errorCode: ok === true ? null : clean(errorCode || 'VERIFY_FAILED', 120),
+    };
+    writeVaultFile(filePath, vault);
+    return { platform, ...entry.verification };
+  };
+
   const list = () => {
     const vault = readVaultFile(filePath);
     return Object.entries(vault.accounts).map(([platform, entry]) => ({
       platform,
       configured: Boolean(entry?.encrypted),
       updatedAt: entry?.updatedAt || null,
+      verificationStatus: entry?.verification?.status || 'unverified',
+      lastVerificationAttemptAt: entry?.verification?.checkedAt || null,
+      lastVerifiedAt: entry?.verification?.status === 'verified' ? entry.verification.checkedAt : null,
+      verificationErrorCode: entry?.verification?.status === 'error' ? entry.verification.errorCode || 'VERIFY_FAILED' : null,
     }));
   };
 
-  return { get, list, remove, set };
+  return { get, list, recordVerification, remove, set };
 }
 
 module.exports = {

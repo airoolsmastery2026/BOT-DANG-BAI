@@ -36,15 +36,28 @@ test('worker admin exposes encrypted account lifecycle for core platforms', () =
   assert.match(html, /data-platform="tiktok"/);
 });
 
-test('extended connection console exposes LinkedIn and Pinterest vault lifecycle', () => {
-  for (const platform of ['linkedin', 'pinterest']) {
+test('extended connection console exposes LinkedIn, Pinterest and YouTube vault lifecycle', () => {
+  for (const platform of ['linkedin', 'pinterest', 'youtube']) {
     assert.match(extendedHtml, new RegExp(`data-platform="${platform}"`));
     assert.match(extendedHtml, new RegExp(`/v1/accounts/\\$\\{platform\\}`));
     assert.match(extendedHtml, new RegExp(`/v1/accounts/\\$\\{platform\\}/verify`));
   }
   assert.match(extendedHtml, /id="linkedinToken" type="password"/);
   assert.match(extendedHtml, /id="pinterestToken" type="password"/);
+  assert.match(extendedHtml, /id="youtubeToken" type="password"/);
   assert.doesNotMatch(extendedHtml, /api\.linkedin\.com|api\.pinterest\.com/);
+});
+
+test('worker consoles distinguish configured accounts from provider-verified accounts', () => {
+  for (const source of [html, extendedHtml]) {
+    assert.match(source, /verificationStatus === 'verified'/);
+    assert.match(source, /lastVerificationAttemptAt/);
+    assert.match(source, /verificationErrorCode/);
+  }
+});
+
+test('worker admin can manually replay failed and dead-letter jobs', () => {
+  assert.match(html, /\['failed', 'dead_letter'\]\.includes\(job\.status\)/);
 });
 
 test('worker admin exposes persistent queue operations without direct publish bypass', () => {

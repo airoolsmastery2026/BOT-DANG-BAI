@@ -28,8 +28,11 @@ const REQUIRED_FILES = [
   'server/telegram-control.js',
   'server/publishing-worker-runtime.js',
   'server/publishing-worker-vault.js',
+  'server/publishing-worker-linkedin.js',
+  'server/publishing-worker-youtube.js',
   'server/publishing-worker.js',
   'public/worker-admin.html',
+  'public/worker-platforms.html',
 ];
 
 test('release-critical modules exist on main product path', () => {
@@ -83,6 +86,23 @@ test('persistent worker stores account credentials encrypted at rest', () => {
   assert.match(vault, /getAuthTag/);
   assert.match(worker, /DHP_PUBLISHING_VAULT_KEY/);
   assert.match(worker, /127\.0\.0\.1/);
+});
+
+test('persistent worker fails closed and reports provider verification health', () => {
+  const runtime = read('server/publishing-worker-runtime.js');
+  const vault = read('server/publishing-worker-vault.js');
+  const worker = read('server/publishing-worker.js');
+  const linkedin = read('server/publishing-worker-linkedin.js');
+  const youtube = read('server/publishing-worker-youtube.js');
+  assert.match(runtime, /JOB_STORE_CORRUPT/);
+  assert.match(runtime, /function replaceJob/);
+  assert.match(vault, /VAULT_CORRUPT/);
+  assert.match(vault, /recordVerification/);
+  assert.match(worker, /verifyAndRecordPlatform/);
+  assert.match(linkedin, /api\.linkedin\.com\/v2\/me/);
+  assert.match(linkedin, /api\.linkedin\.com\/rest\/organizations/);
+  assert.match(youtube, /UNSAFE_SOURCE_URL/);
+  assert.match(youtube, /isTrustedUploadUrl/);
 });
 
 test('campaign pipeline includes content, media prompt readiness and lifecycle audit', () => {

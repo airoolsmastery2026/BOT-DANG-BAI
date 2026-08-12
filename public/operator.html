@@ -103,7 +103,10 @@
       const health = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(health.error || `HTTP ${response.status}`);
       state.textContent = health.paused ? 'PAUSED' : 'RUNNING';
-      status.textContent = `Worker online · ${Number(health.queue?.total || 0)} jobs · ${Number(health.queue?.due || 0)} đến hạn · ${Array.isArray(health.accounts) ? health.accounts.filter((item) => item.configured).length : 0} tài khoản trong vault.`;
+      const accounts = Array.isArray(health.accounts) ? health.accounts : [];
+      const configured = accounts.filter((item) => item.configured).length;
+      const verified = accounts.filter((item) => item.verificationStatus === 'verified').length;
+      status.textContent = `Worker online · ${Number(health.queue?.total || 0)} jobs · ${Number(health.queue?.due || 0)} đến hạn · ${verified}/${configured} tài khoản đã xác minh.`;
     } catch (error) {
       state.textContent = 'OFFLINE';
       status.textContent = error?.message || 'Không thể kết nối Worker.';
