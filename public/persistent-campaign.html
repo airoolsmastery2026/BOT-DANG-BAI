@@ -33,7 +33,6 @@
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { text-align: left; border-bottom: 1px solid #1e293b; padding: 10px 8px; vertical-align: top; }
     th { color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
-    code { color: #c4b5fd; }
     @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } table { display: block; overflow-x: auto; } }
   </style>
 </head>
@@ -43,12 +42,12 @@
     <div>
       <p class="eyebrow">Đại Hải Phát · Persistent Publishing</p>
       <h1>Đưa chiến dịch đã duyệt vào Worker 24/7</h1>
-      <p class="muted">Trang này đọc workflow cùng origin và gửi Facebook / Instagram / TikTok / LinkedIn / Pinterest đã sẵn sàng sang worker. Credential mạng xã hội vẫn lấy từ encrypted worker vault.</p>
+      <p class="muted">Handoff Facebook / Instagram / TikTok / LinkedIn / Pinterest / YouTube sang một persistent worker duy nhất. Credential mạng xã hội chỉ nằm trong encrypted worker vault.</p>
     </div>
     <div class="row">
       <a class="button secondary" href="/campaign-export.html">Xem JSON</a>
       <a class="button secondary" href="/worker-admin.html">Worker Admin</a>
-      <a class="button secondary" href="/worker-platforms.html">LinkedIn / Pinterest</a>
+      <a class="button secondary" href="/worker-platforms.html">Nền tảng mở rộng</a>
     </div>
   </div>
 
@@ -62,10 +61,7 @@
 
     <section class="card">
       <div class="row spread">
-        <div>
-          <h2 id="title">Chưa chọn chiến dịch</h2>
-          <div id="meta" class="row"></div>
-        </div>
+        <div><h2 id="title">Chưa chọn chiến dịch</h2><div id="meta" class="row"></div></div>
         <button id="send" class="good" disabled>Gửi Worker 24/7</button>
       </div>
       <p id="validation" class="muted">Chọn một workflow đã duyệt để xem preview.</p>
@@ -79,7 +75,7 @@
 <script>
 (() => {
   const WORKER_SESSION_KEY = 'dhp_publishing_worker_admin';
-  const WORKER_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok', 'linkedin', 'pinterest']);
+  const WORKER_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok', 'linkedin', 'pinterest', 'youtube']);
   const SECRET_KEY_PATTERN = /(token|secret|password|api[_-]?key|authorization|credential|refresh[_-]?token|access[_-]?token|private[_-]?key)/i;
   const $ = (id) => document.getElementById(id);
   const state = { campaigns: [], selected: null, preview: null };
@@ -136,6 +132,10 @@
   };
 
   const channelContent = (channel) => clean(channel?.content?.text || channel?.content?.caption || channel?.content?.description || channel?.content?.title, 5000);
+  const channelTitle = (channel, content) => clean(channel?.content?.title || content, 100);
+  const channelPrivacy = (channel) => ['private', 'unlisted', 'public'].includes(clean(channel?.privacyStatus, 20).toLowerCase())
+    ? clean(channel.privacyStatus, 20).toLowerCase()
+    : 'private';
 
   const sha256 = async (value) => {
     const bytes = new TextEncoder().encode(value);
@@ -161,21 +161,14 @@
       const videoUrl = mediaUrl(channel, 'video');
       if (!content) { errors.push(`${platform}: thiếu nội dung đã duyệt.`); continue; }
       if (platform === 'instagram' && !imageUrl) { errors.push('instagram: thiếu image URL đã render công khai.'); continue; }
-      if (platform === 'tiktok' && !videoUrl) { errors.push('tiktok: thiếu video URL đã render công khai.'); continue; }
+      if ((platform === 'tiktok' || platform === 'youtube') && !videoUrl) { errors.push(`${platform}: thiếu video URL đã render công khai.`); continue; }
       if (platform === 'pinterest' && !imageUrl) { errors.push('pinterest: thiếu image URL đã render công khai.'); continue; }
 
       for (const scheduledTime of slots) {
-        const idempotencyKey = await sha256([campaignId, platform, scheduledTime, content].join('|'));
-        jobs.push({
-          campaignId,
-          content,
-          platforms: [platform],
-          scheduledTime,
-          imageUrl,
-          videoUrl,
-          targetIds: {},
-          idempotencyKey,
-        });
+        const title = channelTitle(channel, content);
+        const privacyStatus = platform === 'youtube' ? channelPrivacy(channel) : 'private';
+        const idempotencyKey = await sha256([campaignId, platform, scheduledTime, content, title, imageUrl, videoUrl, privacyStatus].join('|'));
+        jobs.push({ campaignId, content, title, platforms: [platform], scheduledTime, imageUrl, videoUrl, privacyStatus, targetIds: {}, idempotencyKey });
       }
     }
     if (!jobs.length && errors.length === 0) errors.push('Không có nền tảng persistent-worker nào sẵn sàng để gửi.');
@@ -194,11 +187,7 @@
     if (!url || !token) throw new Error('Chưa có Worker URL/API token trong phiên. Mở Worker Admin và lưu kết nối trước.');
     const response = await fetch(`${url}/v1/jobs`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'Idempotency-Key': job.idempotencyKey,
-      },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': job.idempotencyKey },
       body: JSON.stringify(job),
     });
     const payload = await response.json().catch(() => ({}));
@@ -245,13 +234,8 @@
     }
     preview.jobs.forEach((job) => {
       const row = document.createElement('tr');
-      [
-        new Date(job.scheduledTime).toLocaleString('vi-VN'),
-        job.platforms[0],
-        job.imageUrl ? 'image' : job.videoUrl ? 'video' : 'text',
-        job.idempotencyKey.slice(0, 12),
-        job.content.slice(0, 120),
-      ].forEach((text) => { const cell = document.createElement('td'); cell.textContent = text; row.appendChild(cell); });
+      [new Date(job.scheduledTime).toLocaleString('vi-VN'), job.platforms[0], job.imageUrl ? 'image' : job.videoUrl ? 'video' : 'text', job.idempotencyKey.slice(0, 12), job.content.slice(0, 120)]
+        .forEach((text) => { const cell = document.createElement('td'); cell.textContent = text; row.appendChild(cell); });
       body.appendChild(row);
     });
   };
