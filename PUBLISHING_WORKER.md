@@ -87,6 +87,8 @@ POST /v1/accounts/youtube/verify
 
 LinkedIn không còn được đánh dấu hợp lệ chỉ vì Author URN đúng định dạng. Worker gọi Profile API cho Person URN hoặc Organization Lookup API cho Organization URN và đối chiếu đúng ID. `/health` chỉ trả metadata an toàn: `configured`, `verificationStatus`, thời điểm kiểm tra và mã lỗi tổng quát.
 
+Worker chỉ nhận job khi mọi nền tảng trong job đang ở trạng thái `verified`. Lúc thực thi, worker kiểm tra lại trạng thái này và buộc `targetIds.facebook`/`targetIds.instagram` phải trùng target đã xác minh trong vault. Lưu credential mới tự động vô hiệu kết quả verify cũ.
+
 ## 4. Đưa bài vào persistent queue
 
 ```http
@@ -110,6 +112,8 @@ Content-Type: application/json
 
 Nếu `targetIds` trống, Facebook và Instagram dùng ID đã mã hóa trong vault. Instagram/Pinterest cần ảnh; TikTok/YouTube cần video. YouTube mặc định `private`.
 
+Media URL phải là HTTP/HTTPS và không được nhúng username/password. Idempotency key vẫn được giữ khi job vào `dead_letter`; muốn chạy lại phải dùng endpoint replay bên dưới để worker giữ kết quả các nền tảng đã thành công.
+
 ## 5. Runtime và retry
 
 ```text
@@ -131,6 +135,8 @@ POST /v1/jobs/:id/retry
 ```
 
 Manual replay đặt lại retry budget nhưng giữ nguyên kết quả các nền tảng đã thành công, tránh đăng trùng.
+
+Nếu file Publishing Control bị hỏng hoặc sai schema, worker fail closed: health trả lỗi và scheduler không xuất bản cho tới khi operator khôi phục file trạng thái hợp lệ. Worker không tự thay file hỏng bằng trạng thái `RUNNING`.
 
 ## 6. YouTube source safety
 

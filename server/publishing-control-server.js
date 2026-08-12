@@ -42,18 +42,26 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const requestId = String(req.headers['x-dhp-request-id'] || crypto.randomUUID());
 
-  if (req.method === 'GET' && url.pathname === '/api/v1/publishing/health') {
-    return json(res, 200, { schemaVersion: '1.0', requestId, data: { status: 'ok', scheduler: runtime.getState() } });
+  try {
+    if (req.method === 'GET' && url.pathname === '/api/v1/publishing/health') {
+      return json(res, 200, { schemaVersion: '1.0', requestId, data: { status: 'ok', scheduler: runtime.getState() } });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/v1/publishing/scheduler/pause') {
+      if (!req.headers['idempotency-key']) return json(res, 400, { error: 'Idempotency-Key is required' });
+      return json(res, 200, { schemaVersion: '1.0', requestId, data: runtime.pause(contextFrom(req)) });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/v1/publishing/scheduler/resume') {
+      if (!req.headers['idempotency-key']) return json(res, 400, { error: 'Idempotency-Key is required' });
+      return json(res, 200, { schemaVersion: '1.0', requestId, data: runtime.resume(contextFrom(req)) });
+    }
+    return json(res, 404, { error: 'Not found' });
+  } catch (error) {
+    const status = error?.code === 'CONTROL_STATE_CORRUPT' ? 503 : 500;
+    return json(res, status, {
+      error: 'Publishing control state unavailable.',
+      errorCode: error?.code || 'CONTROL_STATE_UNAVAILABLE',
+    });
   }
-  if (req.method === 'POST' && url.pathname === '/api/v1/publishing/scheduler/pause') {
-    if (!req.headers['idempotency-key']) return json(res, 400, { error: 'Idempotency-Key is required' });
-    return json(res, 200, { schemaVersion: '1.0', requestId, data: runtime.pause(contextFrom(req)) });
-  }
-  if (req.method === 'POST' && url.pathname === '/api/v1/publishing/scheduler/resume') {
-    if (!req.headers['idempotency-key']) return json(res, 400, { error: 'Idempotency-Key is required' });
-    return json(res, 200, { schemaVersion: '1.0', requestId, data: runtime.resume(contextFrom(req)) });
-  }
-  return json(res, 404, { error: 'Not found' });
 });
 
 server.listen(PORT, HOST, () => {
