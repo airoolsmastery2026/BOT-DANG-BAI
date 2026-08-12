@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 
-const SUPPORTED_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok', 'linkedin', 'pinterest']);
+const SUPPORTED_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok', 'linkedin', 'pinterest', 'youtube']);
 const JOB_STATUS = Object.freeze({
   SCHEDULED: 'scheduled',
   PUBLISHING: 'publishing',
@@ -31,6 +31,11 @@ const normalizeTargetIds = (value) => {
   };
 };
 
+const normalizePrivacyStatus = (value) => {
+  const status = clean(value, 20).toLowerCase();
+  return ['private', 'unlisted', 'public'].includes(status) ? status : 'private';
+};
+
 function isPlatformApiError(errorField) {
   if (!errorField) return false;
   if (typeof errorField === 'string') return !['ok', '0'].includes(errorField.trim().toLowerCase());
@@ -48,8 +53,10 @@ function buildIdempotencyKey(input) {
     platforms: normalizePlatforms(input.platforms).sort(),
     scheduledTime: new Date(input.scheduledTime).toISOString(),
     content: clean(input.content, 5000),
+    title: clean(input.title, 100),
     imageUrl: clean(input.imageUrl, 2000),
     videoUrl: clean(input.videoUrl, 2000),
+    privacyStatus: normalizePrivacyStatus(input.privacyStatus),
   });
   return crypto.createHash('sha256').update(stable).digest('hex');
 }
@@ -62,6 +69,9 @@ function normalizeJob(input, { now = Date.now(), existing = false } = {}) {
   if (!content) throw new Error('Publishing job thiếu nội dung.');
   if (!platforms.length) throw new Error('Publishing job thiếu nền tảng được hỗ trợ.');
   if (Number.isNaN(scheduled.getTime())) throw new Error('Publishing job có thời gian không hợp lệ.');
+  if (platforms.includes('youtube') && !/^https?:\/\//i.test(clean(input.videoUrl, 2000))) {
+    throw new Error('YouTube job cần video URL HTTP/HTTPS công khai.');
+  }
 
   const results = normalizeResults(input.results, platforms);
   const pendingPlatforms = platforms.filter((platform) => results[platform]?.success !== true);
@@ -77,11 +87,13 @@ function normalizeJob(input, { now = Date.now(), existing = false } = {}) {
     campaignId: clean(input.campaignId, 200) || null,
     idempotencyKey: clean(input.idempotencyKey, 200) || buildIdempotencyKey({ ...input, platforms, content, scheduledTime: scheduled.toISOString() }),
     content,
+    title: clean(input.title, 100),
     platforms,
     pendingPlatforms,
     scheduledTime: scheduled.toISOString(),
     imageUrl: clean(input.imageUrl, 2000),
     videoUrl: clean(input.videoUrl, 2000),
+    privacyStatus: normalizePrivacyStatus(input.privacyStatus),
     targetIds: normalizeTargetIds(input.targetIds),
     status,
     results,

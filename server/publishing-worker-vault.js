@@ -12,6 +12,7 @@ const PLATFORM_FIELDS = Object.freeze({
   tiktok: ['accessToken'],
   linkedin: ['accessToken', 'authorUrn'],
   pinterest: ['accessToken', 'boardId'],
+  youtube: ['accessToken', 'channelId'],
 });
 
 const clean = (value, max = 4000) => String(value || '').trim().slice(0, max);
@@ -36,6 +37,9 @@ function normalizeCredentials(platform, value) {
   }
   if (platform === 'pinterest' && !/^\d+$/.test(normalized.boardId)) {
     throw new Error('pinterest: thiếu hoặc sai Board ID.');
+  }
+  if (platform === 'youtube' && !/^UC[A-Za-z0-9_-]{20,}$/.test(normalized.channelId)) {
+    throw new Error('youtube: thiếu hoặc sai Channel ID.');
   }
   return normalized;
 }
