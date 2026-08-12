@@ -19,6 +19,7 @@ const {
   summarizeJobs,
 } = require('./publishing-worker-runtime');
 const { createCredentialVault } = require('./publishing-worker-vault');
+const { createYouTubeAdapter } = require('./publishing-worker-youtube');
 
 const HOST = String(process.env.DHP_PUBLISHING_WORKER_HOST || '127.0.0.1').trim();
 const PORT = Number(process.env.DHP_PUBLISHING_WORKER_PORT || 8794);
@@ -36,12 +37,14 @@ const META_VERSION = /^v\d+\.\d+$/.test(String(process.env.DHP_META_GRAPH_API_VE
 const LINKEDIN_VERSION = /^\d{6}$/.test(String(process.env.DHP_LINKEDIN_VERSION || '202606').trim())
   ? String(process.env.DHP_LINKEDIN_VERSION || '202606').trim()
   : '202606';
+const ACCOUNT_PLATFORMS_PATTERN = '(facebook|instagram|tiktok|linkedin|pinterest|youtube)';
 const MAX_BODY_BYTES = 64_000;
 
 if (!API_TOKEN) throw new Error('DHP_PUBLISHING_WORKER_TOKEN is required');
 if (!VAULT_KEY) throw new Error('DHP_PUBLISHING_VAULT_KEY is required');
 
 const vault = createCredentialVault({ filePath: VAULT_PATH, secret: VAULT_KEY });
+const youtube = createYouTubeAdapter({ timeoutMs: REQUEST_TIMEOUT_MS });
 let activeProcessing = null;
 let stopping = false;
 
@@ -377,6 +380,8 @@ const verifyPlatform = async (platform) => {
     return { platform, ok: true, account: { id: data.id, name: data.name || data.id } };
   }
 
+  if (platform === 'youtube') return youtube.verify(credentials);
+
   throw new Error('Nền tảng chưa được hỗ trợ.');
 };
 
@@ -389,6 +394,7 @@ const publishPlatform = async (platform, job) => {
     if (platform === 'tiktok') return await publishTikTok(job, credentials);
     if (platform === 'linkedin') return await publishLinkedIn(job, credentials);
     if (platform === 'pinterest') return await publishPinterest(job, credentials);
+    if (platform === 'youtube') return await youtube.publish(job, credentials);
     throw new Error(`Nền tảng ${platform} chưa được worker hỗ trợ.`);
   } catch (error) {
     const failure = resultFailure(error);
@@ -511,7 +517,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { data: jobs[index] });
     }
 
-    const accountMatch = url.pathname.match(/^\/v1\/accounts\/(facebook|instagram|tiktok|linkedin|pinterest)$/);
+    const accountMatch = url.pathname.match(new RegExp(`^/v1/accounts/${ACCOUNT_PLATFORMS_PATTERN}$`));
     if (accountMatch && req.method === 'PUT') {
       const body = await readBody(req);
       const metadata = vault.set(accountMatch[1], body);
@@ -521,7 +527,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { data: { platform: accountMatch[1], removed: vault.remove(accountMatch[1]) } });
     }
 
-    const verifyMatch = url.pathname.match(/^\/v1\/accounts\/(facebook|instagram|tiktok|linkedin|pinterest)\/verify$/);
+    const verifyMatch = url.pathname.match(new RegExp(`^/v1/accounts/${ACCOUNT_PLATFORMS_PATTERN}/verify$`));
     if (verifyMatch && req.method === 'POST') {
       return json(res, 200, { data: await verifyPlatform(verifyMatch[1]) });
     }
