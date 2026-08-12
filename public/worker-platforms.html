@@ -126,7 +126,20 @@
       if (!response.ok) throw new Error(health.error || `HTTP ${response.status}`);
       PLATFORMS.forEach((platform) => {
         const account = (health.accounts || []).find((item) => item.platform === platform);
-        setState(platform, account?.configured ? `Đã mã hóa · ${account.updatedAt ? new Date(account.updatedAt).toLocaleString('vi-VN') : ''}` : 'Chưa lưu trong vault');
+        if (!account?.configured) {
+          setState(platform, 'Chưa lưu trong vault');
+          return;
+        }
+        const verified = account.verificationStatus === 'verified';
+        const checkedAt = account.lastVerificationAttemptAt
+          ? new Date(account.lastVerificationAttemptAt).toLocaleString('vi-VN')
+          : '';
+        const label = verified
+          ? `✓ Đã xác minh · ${checkedAt}`
+          : account.verificationStatus === 'error'
+            ? `Lỗi xác minh ${account.verificationErrorCode || ''} · ${checkedAt}`
+            : 'Đã mã hóa · chưa xác minh';
+        setState(platform, label, verified);
       });
       setNotice('ok', `Worker ${health.paused ? 'PAUSED' : 'RUNNING'} · vault sẵn sàng.`);
     } catch (error) { setNotice('error', error.message || 'Không thể kết nối Worker.'); }

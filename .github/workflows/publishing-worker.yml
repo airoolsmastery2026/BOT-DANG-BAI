@@ -31,8 +31,13 @@ jobs:
         run: |
           node --check server/publishing-worker-runtime.js
           node --check server/publishing-worker-vault.js
+          node --check server/publishing-worker-linkedin.js
+          node --check server/publishing-worker-youtube.js
           node --check server/publishing-worker.js
       - name: Run worker unit tests
         run: |
           node --test server/publishing-worker-runtime.test.js
           node --test server/publishing-worker-vault.test.js
+          node --test server/publishing-worker-linkedin.test.js
+          node --test server/publishing-worker-youtube.test.js
+          node --test server/publishing-worker-admin.test.js

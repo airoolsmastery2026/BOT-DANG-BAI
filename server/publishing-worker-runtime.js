@@ -106,15 +106,23 @@ function normalizeJob(input, { now = Date.now(), existing = false } = {}) {
   };
 }
 
-function normalizeStoredJobs(value) {
-  if (!Array.isArray(value)) return [];
-  return value.map((job) => {
+function parseStoredJobs(value) {
+  if (!Array.isArray(value)) {
+    const error = new Error('Publishing job store phải là một JSON array.');
+    error.code = 'JOB_STORE_CORRUPT';
+    throw error;
+  }
+  return value.map((job, index) => {
     try {
       return normalizeJob(job, { existing: true });
-    } catch {
-      return null;
+    } catch (cause) {
+      const error = new Error(`Publishing job store có job không hợp lệ tại index ${index}.`);
+      error.code = 'JOB_STORE_CORRUPT';
+      error.jobIndex = index;
+      error.cause = cause;
+      throw error;
     }
-  }).filter(Boolean);
+  });
 }
 
 function assertNoDuplicate(jobs, job) {
@@ -214,6 +222,43 @@ function retryJob(job, { now = Date.now(), delayMs = 60_000 } = {}) {
   };
 }
 
+function requeueJob(job, { now = Date.now(), delayMs = 1_000 } = {}) {
+  if (![JOB_STATUS.FAILED, JOB_STATUS.DEAD_LETTER].includes(job.status)) {
+    throw new Error('Chỉ job failed/dead_letter mới được đưa lại vào queue thủ công.');
+  }
+  const timestamp = new Date(now).toISOString();
+  const results = Object.fromEntries(
+    Object.entries(job.results || {}).filter(([platform]) => platform !== 'system'),
+  );
+  return {
+    ...job,
+    status: JOB_STATUS.SCHEDULED,
+    results,
+    pendingPlatforms: job.platforms.filter((platform) => results[platform]?.success !== true),
+    attemptCount: 0,
+    scheduledTime: new Date(now + Math.max(Number(delayMs) || 0, 1_000)).toISOString(),
+    deadLetteredAt: null,
+    updatedAt: timestamp,
+  };
+}
+
+function replaceJob(jobs, updatedJob, { expectedStatus = null } = {}) {
+  const index = jobs.findIndex((job) => job.id === updatedJob.id);
+  if (index < 0) {
+    const error = new Error('Publishing job không còn tồn tại trong queue.');
+    error.code = 'JOB_NOT_FOUND';
+    throw error;
+  }
+  if (expectedStatus && jobs[index].status !== expectedStatus) {
+    const error = new Error(`Publishing job đã đổi trạng thái từ ${expectedStatus} sang ${jobs[index].status}.`);
+    error.code = 'JOB_STATE_CONFLICT';
+    throw error;
+  }
+  const next = [...jobs];
+  next[index] = updatedJob;
+  return next;
+}
+
 function recoverStuckJobs(jobs, { now = Date.now(), timeoutMs = 15 * 60_000 } = {}) {
   const safeTimeout = Math.max(Number(timeoutMs) || 0, 60_000);
   return jobs.map((job) => {
@@ -254,8 +299,10 @@ module.exports = {
   markPublishing,
   mergePublishResults,
   normalizeJob,
-  normalizeStoredJobs,
+  parseStoredJobs,
   recoverStuckJobs,
+  replaceJob,
+  requeueJob,
   retryJob,
   summarizeJobs,
 };

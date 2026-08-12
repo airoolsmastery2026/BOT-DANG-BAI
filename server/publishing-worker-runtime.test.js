@@ -11,7 +11,10 @@ const {
   markPublishing,
   mergePublishResults,
   normalizeJob,
+  parseStoredJobs,
   recoverStuckJobs,
+  replaceJob,
+  requeueJob,
   retryJob,
   summarizeJobs,
 } = require('./publishing-worker-runtime');
@@ -127,6 +130,54 @@ test('moves exhausted job to dead letter', () => {
   const dead = retryJob(job, { now: 5000 });
   assert.equal(dead.status, JOB_STATUS.DEAD_LETTER);
   assert.ok(dead.deadLetteredAt);
+});
+
+test('strict stored-job parsing fails closed instead of silently dropping corrupt jobs', () => {
+  assert.throws(
+    () => parseStoredJobs([baseJob(), { id: 'broken' }]),
+    (error) => error.code === 'JOB_STORE_CORRUPT' && error.jobIndex === 1,
+  );
+  assert.throws(
+    () => parseStoredJobs({ jobs: [] }),
+    (error) => error.code === 'JOB_STORE_CORRUPT',
+  );
+});
+
+test('manual replay restores a dead-letter job without republishing successful platforms', () => {
+  const dead = baseJob({
+    platforms: ['facebook', 'instagram'],
+    status: JOB_STATUS.DEAD_LETTER,
+    attemptCount: MAX_ATTEMPTS,
+    deadLetteredAt: '2026-08-10T00:30:00.000Z',
+    results: {
+      facebook: { success: true, externalPostId: 'fb-1' },
+      instagram: { success: false, error: 'permission denied' },
+      system: { success: false, error: 'permanent failure' },
+    },
+  });
+  const replay = requeueJob(dead, { now: 10_000, delayMs: 1_000 });
+  assert.equal(replay.status, JOB_STATUS.SCHEDULED);
+  assert.equal(replay.attemptCount, 0);
+  assert.equal(replay.deadLetteredAt, null);
+  assert.deepEqual(replay.pendingPlatforms, ['instagram']);
+  assert.equal(replay.results.system, undefined);
+  assert.equal(replay.results.facebook.externalPostId, 'fb-1');
+});
+
+test('manual replay refuses an actively publishing job', () => {
+  assert.throws(
+    () => requeueJob(baseJob({ status: JOB_STATUS.PUBLISHING })),
+    /failed\/dead_letter/,
+  );
+});
+
+test('replacing a completed job preserves jobs appended during remote publishing', () => {
+  const publishing = baseJob({ status: JOB_STATUS.PUBLISHING, attemptCount: 1 });
+  const appended = baseJob({ id: 'job-added-while-publishing' });
+  const completed = { ...publishing, status: JOB_STATUS.PUBLISHED };
+  const next = replaceJob([publishing, appended], completed, { expectedStatus: JOB_STATUS.PUBLISHING });
+  assert.deepEqual(next.map((job) => job.id), ['job-1', 'job-added-while-publishing']);
+  assert.equal(next[0].status, JOB_STATUS.PUBLISHED);
 });
 
 test('recovers stale publishing jobs without touching fresh ones', () => {

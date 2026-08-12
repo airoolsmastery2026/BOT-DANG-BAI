@@ -1,8 +1,149 @@
 'use strict';
 
-const isHttpUrl = (value) => /^https?:\/\//i.test(String(value || '').trim());
+const dns = require('node:dns').promises;
+const net = require('node:net');
 
-function createYouTubeAdapter({ fetchImpl = fetch, timeoutMs = 30_000 } = {}) {
+const DEFAULT_MAX_SOURCE_BYTES = 256 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
+
+const isHttpUrl = (value) => {
+  try {
+    const url = new URL(String(value || '').trim());
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+};
+
+function isPrivateIpAddress(value) {
+  const address = String(value || '').trim().toLowerCase();
+  const family = net.isIP(address);
+  if (family === 4) {
+    const [a, b, c] = address.split('.').map(Number);
+    return a === 0
+      || a === 10
+      || a === 127
+      || (a === 100 && b >= 64 && b <= 127)
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 0 && c === 0)
+      || (a === 192 && b === 0 && c === 2)
+      || (a === 192 && b === 168)
+      || (a === 198 && (b === 18 || b === 19))
+      || (a === 198 && b === 51 && c === 100)
+      || (a === 203 && b === 0 && c === 113)
+      || a >= 224;
+  }
+  if (family === 6) {
+    if (address.startsWith('::ffff:')) return isPrivateIpAddress(address.slice(7));
+    return address === '::'
+      || address === '::1'
+      || address.startsWith('fc')
+      || address.startsWith('fd')
+      || /^fe[89ab]/.test(address)
+      || address.startsWith('2001:db8:');
+  }
+  return true;
+}
+
+function unsafeSourceError(message) {
+  const error = new Error(message);
+  error.code = 'UNSAFE_SOURCE_URL';
+  error.retryable = false;
+  return error;
+}
+
+async function assertPublicSourceUrl(value, resolveHost) {
+  let url;
+  try { url = new URL(String(value || '').trim()); }
+  catch { throw unsafeSourceError('YouTube source URL không hợp lệ.'); }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+    throw unsafeSourceError('YouTube source chỉ chấp nhận URL HTTP/HTTPS công khai không chứa credential.');
+  }
+
+  const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost')
+    || hostname.endsWith('.local') || hostname.endsWith('.internal') || hostname.endsWith('.home.arpa')) {
+    throw unsafeSourceError('YouTube source không được trỏ tới hostname nội bộ.');
+  }
+
+  let addresses;
+  if (net.isIP(hostname)) {
+    addresses = [{ address: hostname }];
+  } else {
+    try { addresses = await resolveHost(hostname); }
+    catch (cause) {
+      const error = new Error('Không phân giải được hostname của YouTube source.');
+      error.code = cause?.code || 'SOURCE_DNS_FAILED';
+      error.retryable = cause?.code === 'EAI_AGAIN';
+      throw error;
+    }
+  }
+  if (!Array.isArray(addresses) || !addresses.length) {
+    throw unsafeSourceError('Không phân giải được hostname của YouTube source.');
+  }
+  if (addresses.some((item) => isPrivateIpAddress(typeof item === 'string' ? item : item?.address))) {
+    throw unsafeSourceError('YouTube source không được trỏ tới địa chỉ mạng nội bộ hoặc dành riêng.');
+  }
+  return url;
+}
+
+function sourceSizeError(maxSourceBytes) {
+  const error = new Error(`YouTube source vượt giới hạn ${maxSourceBytes} bytes.`);
+  error.code = 'SOURCE_TOO_LARGE';
+  error.retryable = false;
+  return error;
+}
+
+async function readSourceBytes(response, maxSourceBytes) {
+  const declaredLength = Number(response.headers.get('content-length') || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > maxSourceBytes) throw sourceSizeError(maxSourceBytes);
+
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      total += chunk.length;
+      if (total > maxSourceBytes) {
+        await reader.cancel().catch(() => {});
+        throw sourceSizeError(maxSourceBytes);
+      }
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks, total);
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > maxSourceBytes) throw sourceSizeError(maxSourceBytes);
+  return bytes;
+}
+
+const isTrustedUploadUrl = (value) => {
+  try {
+    const url = new URL(String(value || '').trim());
+    return url.protocol === 'https:'
+      && !url.username
+      && !url.password
+      && (url.hostname === 'googleapis.com' || url.hostname.endsWith('.googleapis.com'));
+  } catch {
+    return false;
+  }
+};
+
+function createYouTubeAdapter({
+  fetchImpl = fetch,
+  timeoutMs = 30_000,
+  maxSourceBytes = DEFAULT_MAX_SOURCE_BYTES,
+  resolveHost = (hostname) => dns.lookup(hostname, { all: true, verbatim: true }),
+} = {}) {
+  const sourceLimit = Number.isFinite(Number(maxSourceBytes)) && Number(maxSourceBytes) > 0
+    ? Number(maxSourceBytes)
+    : DEFAULT_MAX_SOURCE_BYTES;
+
   const headers = (accessToken, extra = {}) => ({
     Authorization: `Bearer ${accessToken}`,
     Accept: 'application/json',
@@ -36,21 +177,31 @@ function createYouTubeAdapter({ fetchImpl = fetch, timeoutMs = 30_000 } = {}) {
     const videoUrl = String(job.videoUrl || '').trim();
     if (!isHttpUrl(videoUrl)) throw new Error('YouTube cần video URL HTTP/HTTPS công khai.');
 
-    const source = await fetchImpl(videoUrl, {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(Math.max(timeoutMs, 120_000)),
-    });
+    let sourceUrl = videoUrl;
+    let source;
+    for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+      const safeUrl = await assertPublicSourceUrl(sourceUrl, resolveHost);
+      source = await fetchImpl(safeUrl.toString(), {
+        redirect: 'manual',
+        signal: AbortSignal.timeout(Math.max(timeoutMs, 120_000)),
+      });
+      if (source.status < 300 || source.status >= 400) break;
+      const location = String(source.headers.get('location') || '').trim();
+      if (!location) throw unsafeSourceError('YouTube source redirect thiếu Location header.');
+      if (redirectCount === MAX_REDIRECTS) throw unsafeSourceError('YouTube source có quá nhiều redirect.');
+      sourceUrl = new URL(location, safeUrl).toString();
+    }
     if (!source.ok) {
       const error = new Error(`Không tải được video nguồn cho YouTube (HTTP ${source.status}).`);
       error.code = `SOURCE_HTTP_${source.status}`;
       error.retryable = source.status === 429 || source.status >= 500;
       throw error;
     }
-    const contentType = String(source.headers.get('content-type') || 'video/mp4').split(';')[0].trim();
+    const contentType = String(source.headers.get('content-type') || '').split(';')[0].trim();
     if (!contentType.startsWith('video/') && contentType !== 'application/octet-stream') {
       throw new Error(`YouTube source có Content-Type không hợp lệ: ${contentType || 'unknown'}.`);
     }
-    const bytes = Buffer.from(await source.arrayBuffer());
+    const bytes = await readSourceBytes(source, sourceLimit);
     if (!bytes.length) throw new Error('YouTube source video rỗng.');
 
     const privacyStatus = ['private', 'unlisted', 'public'].includes(String(job.privacyStatus || '').trim())
@@ -74,7 +225,7 @@ function createYouTubeAdapter({ fetchImpl = fetch, timeoutMs = 30_000 } = {}) {
     });
     if (!init.ok) await readJson(init, 'YouTube resumable session failed.');
     const uploadUrl = String(init.headers.get('location') || '').trim();
-    if (!/^https:\/\//i.test(uploadUrl)) throw new Error('YouTube không trả về resumable upload URL.');
+    if (!isTrustedUploadUrl(uploadUrl)) throw new Error('YouTube không trả về resumable upload URL đáng tin cậy.');
 
     const uploaded = await fetchImpl(uploadUrl, {
       method: 'PUT',
@@ -100,4 +251,12 @@ function createYouTubeAdapter({ fetchImpl = fetch, timeoutMs = 30_000 } = {}) {
   return { publish, verify };
 }
 
-module.exports = { createYouTubeAdapter, isHttpUrl };
+module.exports = {
+  DEFAULT_MAX_SOURCE_BYTES,
+  assertPublicSourceUrl,
+  createYouTubeAdapter,
+  isHttpUrl,
+  isPrivateIpAddress,
+  isTrustedUploadUrl,
+  readSourceBytes,
+};

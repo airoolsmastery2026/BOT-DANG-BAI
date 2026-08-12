@@ -222,8 +222,20 @@
   const renderAccountMetadata = (accounts) => {
     ['facebook', 'instagram', 'tiktok'].forEach((platform) => {
       const account = accounts.find((item) => item.platform === platform);
-      if (account?.configured) setState(platform, `Đã mã hóa · ${account.updatedAt ? new Date(account.updatedAt).toLocaleString('vi-VN') : ''}`);
-      else setState(platform, 'Chưa lưu trong worker vault');
+      if (!account?.configured) {
+        setState(platform, 'Chưa lưu trong worker vault');
+        return;
+      }
+      const verified = account.verificationStatus === 'verified';
+      const checkedAt = account.lastVerificationAttemptAt
+        ? new Date(account.lastVerificationAttemptAt).toLocaleString('vi-VN')
+        : '';
+      const label = verified
+        ? `✓ Đã xác minh · ${checkedAt}`
+        : account.verificationStatus === 'error'
+          ? `Lỗi xác minh ${account.verificationErrorCode || ''} · ${checkedAt}`
+          : 'Đã mã hóa · chưa xác minh';
+      setState(platform, label, verified);
     });
   };
 
@@ -246,7 +258,7 @@
           <td>${escapeHtml(job.status)}</td>
           <td>${Number(job.attemptCount || 0)}</td>
           <td>${escapeHtml(String(job.content || '').slice(0, 120))}</td>
-          <td>${job.status === 'failed' ? `<button class="warn" data-retry="${encodeURIComponent(job.id)}">Retry</button>` : ''}</td>
+          <td>${['failed', 'dead_letter'].includes(job.status) ? `<button class="warn" data-retry="${encodeURIComponent(job.id)}">Retry</button>` : ''}</td>
         </tr>`).join('');
       }
       const health = await request('/health', {}, false);

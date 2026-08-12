@@ -13,13 +13,16 @@ const {
   markPublishing,
   mergePublishResults,
   normalizeJob,
-  normalizeStoredJobs,
+  parseStoredJobs,
   recoverStuckJobs,
+  replaceJob,
+  requeueJob,
   retryJob,
   summarizeJobs,
 } = require('./publishing-worker-runtime');
 const { createCredentialVault } = require('./publishing-worker-vault');
-const { createYouTubeAdapter } = require('./publishing-worker-youtube');
+const { createLinkedInAdapter } = require('./publishing-worker-linkedin');
+const { DEFAULT_MAX_SOURCE_BYTES, createYouTubeAdapter } = require('./publishing-worker-youtube');
 
 const HOST = String(process.env.DHP_PUBLISHING_WORKER_HOST || '127.0.0.1').trim();
 const PORT = Number(process.env.DHP_PUBLISHING_WORKER_PORT || 8794);
@@ -31,6 +34,10 @@ const VAULT_KEY = String(process.env.DHP_PUBLISHING_VAULT_KEY || '').trim();
 const CONTROL_PATH = process.env.DHP_PUBLISHING_CONTROL_PATH || path.join(__dirname, 'dhp-publishing-control.json');
 const INTERVAL_MS = Math.max(Number(process.env.DHP_PUBLISHING_WORKER_INTERVAL_MS || 30_000), 5_000);
 const REQUEST_TIMEOUT_MS = Math.max(Number(process.env.DHP_PUBLISHING_WORKER_TIMEOUT_MS || 30_000), 5_000);
+const YOUTUBE_MAX_SOURCE_BYTES_VALUE = Number(process.env.DHP_YOUTUBE_MAX_SOURCE_BYTES || DEFAULT_MAX_SOURCE_BYTES);
+const YOUTUBE_MAX_SOURCE_BYTES = Number.isFinite(YOUTUBE_MAX_SOURCE_BYTES_VALUE)
+  ? Math.max(YOUTUBE_MAX_SOURCE_BYTES_VALUE, 1024 * 1024)
+  : DEFAULT_MAX_SOURCE_BYTES;
 const META_VERSION = /^v\d+\.\d+$/.test(String(process.env.DHP_META_GRAPH_API_VERSION || 'v25.0').trim())
   ? String(process.env.DHP_META_GRAPH_API_VERSION || 'v25.0').trim()
   : 'v25.0';
@@ -44,7 +51,11 @@ if (!API_TOKEN) throw new Error('DHP_PUBLISHING_WORKER_TOKEN is required');
 if (!VAULT_KEY) throw new Error('DHP_PUBLISHING_VAULT_KEY is required');
 
 const vault = createCredentialVault({ filePath: VAULT_PATH, secret: VAULT_KEY });
-const youtube = createYouTubeAdapter({ timeoutMs: REQUEST_TIMEOUT_MS });
+const linkedin = createLinkedInAdapter({ timeoutMs: REQUEST_TIMEOUT_MS, apiVersion: LINKEDIN_VERSION });
+const youtube = createYouTubeAdapter({
+  timeoutMs: REQUEST_TIMEOUT_MS,
+  maxSourceBytes: YOUTUBE_MAX_SOURCE_BYTES,
+});
 let activeProcessing = null;
 let stopping = false;
 
@@ -56,11 +67,15 @@ const atomicWriteJson = (filePath, value) => {
 };
 
 const readJobs = () => {
+  if (!fs.existsSync(STORE_PATH)) return [];
   try {
-    if (!fs.existsSync(STORE_PATH)) return [];
-    return normalizeStoredJobs(JSON.parse(fs.readFileSync(STORE_PATH, 'utf8')));
-  } catch {
-    return [];
+    return parseStoredJobs(JSON.parse(fs.readFileSync(STORE_PATH, 'utf8')));
+  } catch (cause) {
+    if (cause?.code === 'JOB_STORE_CORRUPT') throw cause;
+    const error = new Error('Publishing job store bị hỏng; worker từ chối ghi đè để bảo toàn dữ liệu.');
+    error.code = 'JOB_STORE_CORRUPT';
+    error.cause = cause;
+    throw error;
   }
 };
 
@@ -276,42 +291,6 @@ const publishTikTok = async (job, credentials) => {
   };
 };
 
-const linkedinHeaders = (accessToken) => ({
-  Authorization: `Bearer ${accessToken}`,
-  'Content-Type': 'application/json',
-  'X-Restli-Protocol-Version': '2.0.0',
-  'Linkedin-Version': LINKEDIN_VERSION,
-});
-
-const publishLinkedIn = async (job, credentials) => {
-  const response = await fetch('https://api.linkedin.com/rest/posts', {
-    method: 'POST',
-    headers: linkedinHeaders(credentials.accessToken),
-    body: JSON.stringify({
-      author: credentials.authorUrn,
-      commentary: job.content,
-      visibility: 'PUBLIC',
-      distribution: {
-        feedDistribution: 'MAIN_FEED',
-        targetEntities: [],
-        thirdPartyDistributionChannels: [],
-      },
-      lifecycleState: 'PUBLISHED',
-      isReshareDisabledByAuthor: false,
-    }),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(data?.message || data?.errorDetails?.message || `LinkedIn HTTP ${response.status}`);
-    error.code = data?.code || `HTTP_${response.status}`;
-    error.retryable = response.status === 429 || response.status >= 500;
-    throw error;
-  }
-  const externalPostId = response.headers.get('x-restli-id') || data?.id || null;
-  return { success: true, externalPostId, publishedAt: new Date().toISOString() };
-};
-
 const publishPinterest = async (job, credentials) => {
   if (!/^https?:\/\//i.test(job.imageUrl)) throw new Error('Pinterest cần image URL HTTP/HTTPS công khai.');
   const response = await fetch('https://api.pinterest.com/v5/pins', {
@@ -367,7 +346,7 @@ const verifyPlatform = async (platform) => {
   }
 
   if (platform === 'linkedin') {
-    return { platform, ok: true, account: { id: credentials.authorUrn, name: credentials.authorUrn } };
+    return linkedin.verify(credentials);
   }
 
   if (platform === 'pinterest') {
@@ -385,6 +364,21 @@ const verifyPlatform = async (platform) => {
   throw new Error('Nền tảng chưa được hỗ trợ.');
 };
 
+const verifyAndRecordPlatform = async (platform) => {
+  try {
+    const result = await verifyPlatform(platform);
+    vault.recordVerification(platform, { ok: true });
+    return result;
+  } catch (error) {
+    try {
+      vault.recordVerification(platform, { ok: false, errorCode: error?.code || 'VERIFY_FAILED' });
+    } catch {
+      // Preserve the original provider/vault error returned to the operator.
+    }
+    throw error;
+  }
+};
+
 const publishPlatform = async (platform, job) => {
   try {
     const credentials = vault.get(platform);
@@ -392,7 +386,7 @@ const publishPlatform = async (platform, job) => {
     if (platform === 'facebook') return await publishFacebook(job, credentials);
     if (platform === 'instagram') return await publishInstagram(job, credentials);
     if (platform === 'tiktok') return await publishTikTok(job, credentials);
-    if (platform === 'linkedin') return await publishLinkedIn(job, credentials);
+    if (platform === 'linkedin') return await linkedin.publish(job, credentials);
     if (platform === 'pinterest') return await publishPinterest(job, credentials);
     if (platform === 'youtube') return await youtube.publish(job, credentials);
     throw new Error(`Nền tảng ${platform} chưa được worker hỗ trợ.`);
@@ -438,8 +432,9 @@ const processOneJob = async (job, jobs) => {
     }
   }
 
-  jobs[index] = completed;
-  writeJobs(jobs);
+  const latestJobs = readJobs();
+  const persistedJobs = replaceJob(latestJobs, completed, { expectedStatus: JOB_STATUS.PUBLISHING });
+  writeJobs(persistedJobs);
   return completed;
 };
 
@@ -473,14 +468,23 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url || '/', `http://${req.headers.host || `${HOST}:${PORT}`}`);
   if (req.method === 'GET' && url.pathname === '/health') {
-    return json(res, 200, {
-      status: 'ok',
-      service: 'dhp-publishing-worker',
-      paused: schedulerPaused(),
-      intervalMs: INTERVAL_MS,
-      queue: summarizeJobs(readJobs()),
-      accounts: vault.list(),
-    });
+    try {
+      return json(res, 200, {
+        status: 'ok',
+        service: 'dhp-publishing-worker',
+        paused: schedulerPaused(),
+        intervalMs: INTERVAL_MS,
+        queue: summarizeJobs(readJobs()),
+        accounts: vault.list(),
+      });
+    } catch (error) {
+      return json(res, 503, {
+        status: 'error',
+        service: 'dhp-publishing-worker',
+        error: 'Worker storage unavailable.',
+        errorCode: error?.code || 'STORAGE_UNAVAILABLE',
+      });
+    }
   }
 
   if (!authorized(req)) return json(res, 401, { error: 'Unauthorized' });
@@ -512,7 +516,7 @@ const server = http.createServer(async (req, res) => {
       const jobs = readJobs();
       const index = jobs.findIndex((job) => job.id === decodeURIComponent(retryMatch[1]));
       if (index < 0) return json(res, 404, { error: 'Job not found' });
-      jobs[index] = retryJob(jobs[index], { delayMs: 1000 });
+      jobs[index] = requeueJob(jobs[index], { delayMs: 1000 });
       writeJobs(jobs);
       return json(res, 200, { data: jobs[index] });
     }
@@ -529,12 +533,13 @@ const server = http.createServer(async (req, res) => {
 
     const verifyMatch = url.pathname.match(new RegExp(`^/v1/accounts/${ACCOUNT_PLATFORMS_PATTERN}/verify$`));
     if (verifyMatch && req.method === 'POST') {
-      return json(res, 200, { data: await verifyPlatform(verifyMatch[1]) });
+      return json(res, 200, { data: await verifyAndRecordPlatform(verifyMatch[1]) });
     }
 
     return json(res, 404, { error: 'Not found' });
   } catch (error) {
     const status = error?.code === 'DUPLICATE_JOB' ? 409
+      : ['JOB_STORE_CORRUPT', 'VAULT_CORRUPT'].includes(error?.code) ? 500
       : error?.message === 'Payload quá lớn.' ? 413
         : error?.message === 'JSON không hợp lệ.' ? 400
           : 400;

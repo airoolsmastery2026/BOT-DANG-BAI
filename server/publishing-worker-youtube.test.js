@@ -30,13 +30,14 @@ test('publish downloads source, creates resumable session and uploads bytes', as
         return response({ headers: { 'content-type': 'video/mp4' }, bytes: new Uint8Array([1, 2, 3, 4]).buffer });
       }
       if (String(url).includes('uploadType=resumable')) {
-        return response({ headers: { location: 'https://upload.youtube.example/session' } });
+        return response({ headers: { location: 'https://www.googleapis.com/upload/session' } });
       }
-      if (url === 'https://upload.youtube.example/session') {
+      if (url === 'https://www.googleapis.com/upload/session') {
         return response({ status: 201, json: { id: 'abc123' } });
       }
       throw new Error(`Unexpected URL: ${url}`);
     },
+    resolveHost: async () => [{ address: '8.8.8.8' }],
   });
 
   const result = await adapter.publish({ content: 'Short demo', videoUrl: 'https://cdn.example/video.mp4' }, {
@@ -52,9 +53,64 @@ test('publish downloads source, creates resumable session and uploads bytes', as
 test('publish rejects non-video source content type', async () => {
   const adapter = createYouTubeAdapter({
     fetchImpl: async () => response({ headers: { 'content-type': 'text/html' } }),
+    resolveHost: async () => [{ address: '8.8.8.8' }],
   });
   await assert.rejects(
     adapter.publish({ content: 'x', videoUrl: 'https://example.com/page' }, { accessToken: 'token', channelId: 'UCabcdefghijklmnopqrstuv' }),
     /Content-Type không hợp lệ/,
+  );
+});
+
+test('publish rejects private source addresses before making a request', async () => {
+  let called = false;
+  const adapter = createYouTubeAdapter({
+    fetchImpl: async () => { called = true; return response(); },
+  });
+  await assert.rejects(
+    adapter.publish({ content: 'x', videoUrl: 'http://127.0.0.1/private.mp4' }, { accessToken: 'token' }),
+    (error) => error.code === 'UNSAFE_SOURCE_URL',
+  );
+  assert.equal(called, false);
+});
+
+test('publish validates every redirect and blocks redirects to metadata services', async () => {
+  const adapter = createYouTubeAdapter({
+    fetchImpl: async () => response({ status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } }),
+    resolveHost: async () => [{ address: '8.8.8.8' }],
+  });
+  await assert.rejects(
+    adapter.publish({ content: 'x', videoUrl: 'https://cdn.example/video.mp4' }, { accessToken: 'token' }),
+    (error) => error.code === 'UNSAFE_SOURCE_URL',
+  );
+});
+
+test('publish rejects a declared source larger than the configured memory limit', async () => {
+  const adapter = createYouTubeAdapter({
+    maxSourceBytes: 3,
+    resolveHost: async () => [{ address: '8.8.8.8' }],
+    fetchImpl: async () => response({
+      headers: { 'content-type': 'video/mp4', 'content-length': '4' },
+      bytes: new Uint8Array([1, 2, 3, 4]).buffer,
+    }),
+  });
+  await assert.rejects(
+    adapter.publish({ content: 'x', videoUrl: 'https://cdn.example/video.mp4' }, { accessToken: 'token' }),
+    (error) => error.code === 'SOURCE_TOO_LARGE',
+  );
+});
+
+test('publish does not send the OAuth token to an untrusted resumable location', async () => {
+  const adapter = createYouTubeAdapter({
+    resolveHost: async () => [{ address: '8.8.8.8' }],
+    fetchImpl: async (url) => {
+      if (url === 'https://cdn.example/video.mp4') {
+        return response({ headers: { 'content-type': 'video/mp4' } });
+      }
+      return response({ headers: { location: 'https://attacker.example/upload' } });
+    },
+  });
+  await assert.rejects(
+    adapter.publish({ content: 'x', videoUrl: 'https://cdn.example/video.mp4' }, { accessToken: 'token' }),
+    /đáng tin cậy/,
   );
 });
