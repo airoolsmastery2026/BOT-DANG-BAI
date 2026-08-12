@@ -26,11 +26,25 @@ const baseJob = (overrides = {}) => normalizeJob({
 }, { now: new Date('2026-08-09T23:00:00.000Z').getTime() });
 
 test('normalizes supported platforms and creates idempotency key', () => {
-  const job = baseJob({ platforms: ['Facebook', 'facebook', 'LinkedIn', 'Pinterest', 'unknown'] });
-  assert.deepEqual(job.platforms, ['facebook', 'linkedin', 'pinterest']);
+  const job = baseJob({ platforms: ['Facebook', 'facebook', 'LinkedIn', 'Pinterest', 'YouTube', 'unknown'], videoUrl: 'https://cdn.example/video.mp4' });
+  assert.deepEqual(job.platforms, ['facebook', 'linkedin', 'pinterest', 'youtube']);
   assert.equal(job.status, JOB_STATUS.SCHEDULED);
   assert.equal(job.attemptCount, 0);
   assert.equal(job.idempotencyKey.length, 64);
+});
+
+test('YouTube jobs require video URL and default to private', () => {
+  assert.throws(() => baseJob({ platforms: ['youtube'] }), /YouTube job cần video URL/);
+  const job = baseJob({
+    platforms: ['youtube'],
+    videoUrl: 'https://cdn.example/short.mp4',
+    title: 'Short demo',
+    privacyStatus: 'public',
+  });
+  assert.equal(job.title, 'Short demo');
+  assert.equal(job.privacyStatus, 'public');
+  const safe = baseJob({ platforms: ['youtube'], videoUrl: 'https://cdn.example/short.mp4', privacyStatus: 'invalid' });
+  assert.equal(safe.privacyStatus, 'private');
 });
 
 test('recognizes TikTok ok envelope as success and real API errors as failures', () => {
