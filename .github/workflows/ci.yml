@@ -35,9 +35,11 @@ jobs:
           node --check server/linkedin-server.js
           node --check server/dhp-social-lead-bridge.js
           node --check server/dhp-media-ingress.js
+          node --check server/dhp-website-client.js
           node --check server/publishing-control-runtime.js
           node --check server/publishing-control-server.js
           node --check server/telegram-control-runtime.js
+          node --check server/telegram-control-entry.js
           node --check server/telegram-control.js
           node --check server/ai-content-runtime.js
           node --check server/ai-content-server.js
@@ -47,6 +49,7 @@ jobs:
         run: |
           node --test server/dhp-social-lead-bridge.test.js
           node --test server/dhp-media-cloud-sync.test.js
+          node --test server/dhp-website-client.test.js
           node --test server/publishing-control-runtime.test.js
           node --test server/telegram-control-runtime.test.js
           node --test server/ai-content-runtime.test.js
