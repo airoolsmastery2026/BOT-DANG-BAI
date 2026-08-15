@@ -24,7 +24,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -44,6 +44,7 @@ jobs:
           node --check server/ai-content-runtime.js
           node --check server/ai-content-server.js
           node --check api/dhp/social-lead.js
+          node --check api/dhp/website-health.js
 
       - name: Run backend unit tests
         run: |
