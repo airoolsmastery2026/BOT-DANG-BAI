@@ -6,6 +6,7 @@ const path = require('path');
 
 const VERSION = 1;
 const ALGORITHM = 'aes-256-gcm';
+const DEFAULT_VERIFICATION_MAX_AGE_MS = 24 * 60 * 60_000;
 const PLATFORM_FIELDS = Object.freeze({
   facebook: ['accessToken', 'pageId'],
   instagram: ['accessToken', 'userId'],
@@ -99,16 +100,39 @@ function writeVaultFile(filePath, vault) {
   try { fs.chmodSync(filePath, 0o600); } catch { /* best effort on non-POSIX */ }
 }
 
-function createCredentialVault({ filePath, secret }) {
+function createCredentialVault({
+  filePath,
+  secret,
+  verificationMaxAgeMs = DEFAULT_VERIFICATION_MAX_AGE_MS,
+  now = () => Date.now(),
+}) {
   if (!filePath) throw new Error('Credential vault thiếu filePath.');
   deriveKey(secret);
+  const safeVerificationMaxAgeMs = Math.max(Number(verificationMaxAgeMs) || DEFAULT_VERIFICATION_MAX_AGE_MS, 60_000);
+  const nowMs = () => Number(now());
+  const verificationState = (entry) => {
+    if (!entry?.encrypted) return { status: 'not_configured', ready: false, stale: false, checkedAt: null, ageMs: null, errorCode: null };
+    const verification = entry.verification || {};
+    const checkedAtMs = verification.checkedAt ? new Date(verification.checkedAt).getTime() : NaN;
+    const ageMs = Number.isFinite(checkedAtMs) ? Math.max(nowMs() - checkedAtMs, 0) : null;
+    const stale = verification.status === 'verified' && (ageMs === null || ageMs > safeVerificationMaxAgeMs);
+    if (stale) return { status: 'stale', ready: false, stale: true, checkedAt: verification.checkedAt || null, ageMs, errorCode: 'ACCOUNT_VERIFICATION_STALE' };
+    return {
+      status: verification.status || 'unverified',
+      ready: verification.status === 'verified',
+      stale: false,
+      checkedAt: verification.checkedAt || null,
+      ageMs,
+      errorCode: verification.status === 'error' ? verification.errorCode || 'VERIFY_FAILED' : null,
+    };
+  };
 
   const set = (platform, credentials) => {
     const normalized = normalizeCredentials(platform, credentials);
     const vault = readVaultFile(filePath);
     vault.accounts[platform] = {
       encrypted: encryptJson(normalized, secret),
-      updatedAt: new Date().toISOString(),
+      updatedAt: new Date(nowMs()).toISOString(),
       verification: { status: 'unverified', checkedAt: null, errorCode: null },
     };
     writeVaultFile(filePath, vault);
@@ -129,7 +153,14 @@ function createCredentialVault({ filePath, secret }) {
       error.retryable = false;
       throw error;
     }
-    if (entry?.verification?.status !== 'verified') {
+    const state = verificationState(entry);
+    if (state.status === 'stale') {
+      const error = new Error(`${platform}: lần xác minh credential đã quá hạn; cần kiểm tra lại tài khoản trước khi publish.`);
+      error.code = 'ACCOUNT_VERIFICATION_STALE';
+      error.retryable = false;
+      throw error;
+    }
+    if (state.status !== 'verified') {
       const error = new Error(`${platform}: credential chưa được xác minh với nhà cung cấp.`);
       error.code = 'ACCOUNT_NOT_VERIFIED';
       error.retryable = false;
@@ -167,7 +198,7 @@ function createCredentialVault({ filePath, secret }) {
     const vault = readVaultFile(filePath);
     const entry = vault.accounts[platform];
     if (!entry?.encrypted) throw new Error(`${platform}: chưa có credential trong worker vault.`);
-    const checkedAt = new Date().toISOString();
+    const checkedAt = new Date(nowMs()).toISOString();
     entry.verification = {
       status: ok === true ? 'verified' : 'error',
       checkedAt,
@@ -179,21 +210,40 @@ function createCredentialVault({ filePath, secret }) {
 
   const list = () => {
     const vault = readVaultFile(filePath);
-    return Object.entries(vault.accounts).map(([platform, entry]) => ({
-      platform,
-      configured: Boolean(entry?.encrypted),
-      updatedAt: entry?.updatedAt || null,
-      verificationStatus: entry?.verification?.status || 'unverified',
-      lastVerificationAttemptAt: entry?.verification?.checkedAt || null,
-      lastVerifiedAt: entry?.verification?.status === 'verified' ? entry.verification.checkedAt : null,
-      verificationErrorCode: entry?.verification?.status === 'error' ? entry.verification.errorCode || 'VERIFY_FAILED' : null,
-    }));
+    return Object.entries(vault.accounts).map(([platform, entry]) => {
+      const state = verificationState(entry);
+      return {
+        platform,
+        configured: Boolean(entry?.encrypted),
+        ready: state.ready,
+        updatedAt: entry?.updatedAt || null,
+        verificationStatus: state.status,
+        verificationStale: state.stale,
+        verificationAgeMs: state.ageMs,
+        verificationMaxAgeMs: safeVerificationMaxAgeMs,
+        lastVerificationAttemptAt: state.checkedAt,
+        lastVerifiedAt: state.status === 'verified' ? state.checkedAt : null,
+        verificationErrorCode: state.errorCode,
+      };
+    });
   };
 
-  return { assertVerified, get, getVerified, list, recordVerification, remove, set };
+  const health = () => {
+    const accounts = list();
+    return {
+      total: accounts.length,
+      ready: accounts.filter((item) => item.ready).length,
+      notReady: accounts.filter((item) => !item.ready).length,
+      stale: accounts.filter((item) => item.verificationStatus === 'stale').length,
+      accounts,
+    };
+  };
+
+  return { assertVerified, get, getVerified, health, list, recordVerification, remove, set };
 }
 
 module.exports = {
+  DEFAULT_VERIFICATION_MAX_AGE_MS,
   PLATFORM_FIELDS,
   createCredentialVault,
   decryptJson,
