@@ -59,10 +59,11 @@ test('encrypts and decrypts JSON with authenticated encryption', () => {
   assert.deepEqual(decryptJson(encrypted, SECRET), { accessToken: 'secret-token' });
 });
 
-test('stores credentials encrypted at rest and lists only metadata', () => {
+test('stores credentials encrypted at rest and lists readiness metadata only', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dhp-worker-vault-'));
   const filePath = path.join(directory, 'vault.json');
-  const vault = createCredentialVault({ filePath, secret: SECRET });
+  let clock = Date.parse('2026-08-14T00:00:00.000Z');
+  const vault = createCredentialVault({ filePath, secret: SECRET, verificationMaxAgeMs: 60 * 60_000, now: () => clock });
 
   vault.set('facebook', { accessToken: 'fb-secret-token', pageId: 'page-1' });
   vault.set('linkedin', { accessToken: 'li-secret-token', authorUrn: 'urn:li:person:123' });
@@ -78,6 +79,7 @@ test('stores credentials encrypted at rest and lists only metadata', () => {
   assert.deepEqual(vault.get('youtube'), { accessToken: 'yt-secret-token', channelId: YOUTUBE_CHANNEL });
   assert.deepEqual(vault.list().map((item) => item.platform).sort(), ['facebook', 'linkedin', 'pinterest', 'youtube']);
   assert.equal(vault.list().find((item) => item.platform === 'facebook').verificationStatus, 'unverified');
+  assert.equal(vault.list().find((item) => item.platform === 'facebook').ready, false);
   assert.throws(
     () => vault.getVerified('facebook'),
     (error) => error.code === 'ACCOUNT_NOT_VERIFIED' && error.retryable === false,
@@ -86,25 +88,38 @@ test('stores credentials encrypted at rest and lists only metadata', () => {
     () => vault.assertVerified('instagram'),
     (error) => error.code === 'ACCOUNT_NOT_CONFIGURED' && error.retryable === false,
   );
+
   const verified = vault.recordVerification('facebook', { ok: true });
   assert.equal(verified.status, 'verified');
   assert.equal(vault.assertVerified(['facebook']), true);
   assert.deepEqual(vault.getVerified('facebook'), { accessToken: 'fb-secret-token', pageId: 'page-1' });
   assert.equal(vault.list().find((item) => item.platform === 'facebook').verificationStatus, 'verified');
+  assert.equal(vault.list().find((item) => item.platform === 'facebook').ready, true);
   assert.ok(vault.list().find((item) => item.platform === 'facebook').lastVerifiedAt);
-  vault.recordVerification('pinterest', { ok: false, errorCode: 'HTTP_401' });
-  assert.deepEqual(
-    vault.list().find((item) => item.platform === 'pinterest'),
-    {
-      platform: 'pinterest',
-      configured: true,
-      updatedAt: vault.list().find((item) => item.platform === 'pinterest').updatedAt,
-      verificationStatus: 'error',
-      lastVerificationAttemptAt: vault.list().find((item) => item.platform === 'pinterest').lastVerificationAttemptAt,
-      lastVerifiedAt: null,
-      verificationErrorCode: 'HTTP_401',
-    },
+
+  clock += 60 * 60_000 + 1;
+  const stale = vault.list().find((item) => item.platform === 'facebook');
+  assert.equal(stale.verificationStatus, 'stale');
+  assert.equal(stale.verificationStale, true);
+  assert.equal(stale.ready, false);
+  assert.equal(stale.verificationErrorCode, 'ACCOUNT_VERIFICATION_STALE');
+  assert.throws(
+    () => vault.getVerified('facebook'),
+    (error) => error.code === 'ACCOUNT_VERIFICATION_STALE' && error.retryable === false,
   );
+  assert.equal(vault.health().stale, 1);
+  assert.equal(vault.health().ready, 0);
+
+  vault.recordVerification('facebook', { ok: true });
+  assert.equal(vault.getVerified('facebook').pageId, 'page-1');
+  assert.equal(vault.health().ready, 1);
+
+  vault.recordVerification('pinterest', { ok: false, errorCode: 'HTTP_401' });
+  const pinterestHealth = vault.list().find((item) => item.platform === 'pinterest');
+  assert.equal(pinterestHealth.verificationStatus, 'error');
+  assert.equal(pinterestHealth.ready, false);
+  assert.equal(pinterestHealth.verificationErrorCode, 'HTTP_401');
+
   vault.set('facebook', { accessToken: 'new-secret-token', pageId: 'page-1' });
   assert.equal(vault.list().find((item) => item.platform === 'facebook').verificationStatus, 'unverified');
   assert.throws(() => vault.getVerified('facebook'), (error) => error.code === 'ACCOUNT_NOT_VERIFIED');
