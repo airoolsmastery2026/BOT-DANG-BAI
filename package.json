@@ -30,6 +30,9 @@
     "dhp:publishing-control": "node server/publishing-control-server.js",
     "dhp:publishing-worker": "node server/publishing-worker.js",
     "dhp:publishing-verify": "node scripts/verify-worker-accounts.js",
+    "dhp:state-backup": "node scripts/worker-state-snapshot.js backup",
+    "dhp:state-verify": "node scripts/worker-state-snapshot.js verify",
+    "dhp:state-restore": "node scripts/worker-state-snapshot.js restore",
     "dhp:telegram-control": "node server/telegram-control-entry.js",
     "dhp:ai-content": "node server/ai-content-server.js"
   },
