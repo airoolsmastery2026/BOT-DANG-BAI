@@ -18,24 +18,49 @@
     .card:hover { transform: translateY(-2px); border-color: rgba(139,92,246,.65); }
     .card strong { font-size: 20px; }
     .badge { width: fit-content; border-radius: 999px; padding: 4px 8px; background: #1e293b; color: #cbd5e1; font-size: 12px; }
+    .badge.ok { background: rgba(16,185,129,.16); color: #a7f3d0; }
+    .badge.warn { background: rgba(245,158,11,.16); color: #fde68a; }
+    .badge.error { background: rgba(239,68,68,.16); color: #fecaca; }
     .step { color: #a7f3d0; font-weight: 800; font-size: 13px; }
     .status { margin-top: 18px; padding: 12px 14px; border-radius: 12px; border: 1px solid #334155; background: #0f172a; color: #cbd5e1; }
     .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     button { border: 0; border-radius: 10px; padding: 9px 12px; font: inherit; font-weight: 800; cursor: pointer; color: white; background: #334155; }
-    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+    .readiness { margin-top: 18px; border: 1px solid #334155; background: rgba(15,23,42,.86); border-radius: 18px; padding: 18px; }
+    .readiness-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+    .metric { border: 1px solid #273449; background: #07111f; border-radius: 12px; padding: 12px; }
+    .metric strong { display: block; margin-top: 4px; font-size: 20px; }
+    .accounts { margin-top: 14px; display: grid; gap: 8px; }
+    .account { display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 1px solid #273449; border-radius: 10px; padding: 10px 12px; }
+    .account-name { text-transform: capitalize; font-weight: 800; }
+    @media (max-width: 760px) { .grid, .readiness-grid { grid-template-columns: 1fr; } .account { align-items: flex-start; flex-direction: column; } }
   </style>
 </head>
 <body>
 <main>
   <p class="eyebrow">Đại Hải Phát · Operations</p>
   <h1>BOT ĐĂNG BÀI · Operator Hub</h1>
-  <p class="muted">Một điểm vào duy nhất cho các thao tác vận hành. Quy trình khuyến nghị: tạo/duyệt chiến dịch trong app → kiểm tra JSON/media → kết nối Worker → gửi sang queue 24/7.</p>
+  <p class="muted">Một điểm vào duy nhất cho các thao tác vận hành. Quy trình khuyến nghị: tạo/duyệt chiến dịch trong app → kiểm tra JSON/media → kết nối Worker → xác minh tài khoản → gửi sang queue 24/7.</p>
 
   <div class="row">
     <button id="checkWorker">Kiểm tra Worker 24/7</button>
+    <button id="refreshVerification" disabled>Làm mới xác minh cần thiết</button>
     <span id="workerState" class="badge">Chưa kiểm tra</span>
   </div>
   <div id="status" class="status">Worker URL/token được dùng từ cùng session của Worker Admin; không được ghi vào localStorage.</div>
+
+  <section class="readiness" aria-labelledby="readinessTitle">
+    <p class="eyebrow">LIVE Readiness</p>
+    <h2 id="readinessTitle">Sẵn sàng vận hành</h2>
+    <p class="muted">Fail-closed: chỉ coi LIVE sẵn sàng khi Worker online, scheduler không pause và mọi tài khoản đã cấu hình còn verification hợp lệ.</p>
+    <div class="readiness-grid">
+      <div class="metric"><span class="muted">Worker</span><strong id="metricWorker">—</strong></div>
+      <div class="metric"><span class="muted">Scheduler</span><strong id="metricScheduler">—</strong></div>
+      <div class="metric"><span class="muted">Queue đến hạn</span><strong id="metricDue">—</strong></div>
+      <div class="metric"><span class="muted">Account verified</span><strong id="metricAccounts">—</strong></div>
+    </div>
+    <div id="accounts" class="accounts" aria-live="polite"></div>
+  </section>
 
   <section class="grid" aria-label="Công cụ vận hành">
     <a class="card" href="/">
@@ -61,9 +86,9 @@
 
     <a class="card" href="/worker-platforms.html">
       <span class="step">BƯỚC 3B</span>
-      <strong>LinkedIn + Pinterest</strong>
-      <p class="muted">Dùng cùng worker session để lưu LinkedIn Author URN và Pinterest Board ID vào encrypted vault, không đưa access token vào localStorage.</p>
-      <span class="badge">LinkedIn · Pinterest</span>
+      <strong>LinkedIn + Pinterest + YouTube</strong>
+      <p class="muted">Dùng cùng worker session để quản lý credential trong encrypted vault, verify provider và không đưa access token vào localStorage.</p>
+      <span class="badge">LinkedIn · Pinterest · YouTube</span>
     </a>
 
     <a class="card" href="/persistent-campaign.html">
@@ -79,6 +104,15 @@
   const SESSION_KEY = 'dhp_publishing_worker_admin';
   const state = document.getElementById('workerState');
   const status = document.getElementById('status');
+  const accountsNode = document.getElementById('accounts');
+  const refreshButton = document.getElementById('refreshVerification');
+  const metrics = {
+    worker: document.getElementById('metricWorker'),
+    scheduler: document.getElementById('metricScheduler'),
+    due: document.getElementById('metricDue'),
+    accounts: document.getElementById('metricAccounts'),
+  };
+  let lastHealth = null;
 
   const readConfig = () => {
     try {
@@ -90,30 +124,129 @@
     } catch { return { url: '', token: '' }; }
   };
 
+  const verificationNeedsRefresh = (account) => Boolean(
+    account?.configured && (
+      account?.stale === true ||
+      account?.verificationStatus !== 'verified'
+    )
+  );
+
+  const renderAccounts = (accounts) => {
+    accountsNode.replaceChildren();
+    if (!accounts.length) {
+      const empty = document.createElement('p');
+      empty.className = 'muted';
+      empty.textContent = 'Chưa có tài khoản nào được cấu hình trong worker vault.';
+      accountsNode.appendChild(empty);
+      return;
+    }
+    accounts.forEach((account) => {
+      const row = document.createElement('div');
+      row.className = 'account';
+      const name = document.createElement('span');
+      name.className = 'account-name';
+      name.textContent = String(account.platform || 'unknown');
+      const badge = document.createElement('span');
+      const stale = account.stale === true;
+      const verified = account.verificationStatus === 'verified' && !stale;
+      badge.className = `badge ${verified ? 'ok' : account.configured ? 'warn' : 'error'}`;
+      badge.textContent = !account.configured ? 'NOT CONFIGURED' : verified ? 'VERIFIED' : stale ? 'STALE' : String(account.verificationStatus || 'UNVERIFIED').toUpperCase();
+      row.append(name, badge);
+      accountsNode.appendChild(row);
+    });
+  };
+
+  const applyHealth = (health) => {
+    const accounts = Array.isArray(health.accounts) ? health.accounts : [];
+    const configured = accounts.filter((item) => item.configured).length;
+    const verified = accounts.filter((item) => item.configured && item.verificationStatus === 'verified' && item.stale !== true).length;
+    const needsRefresh = accounts.filter(verificationNeedsRefresh);
+    const paused = health.paused === true;
+    const ready = !paused && configured > 0 && verified === configured;
+
+    state.textContent = ready ? 'LIVE READY' : paused ? 'PAUSED' : needsRefresh.length ? 'NEEDS VERIFY' : 'RUNNING';
+    state.className = `badge ${ready ? 'ok' : paused || needsRefresh.length ? 'warn' : ''}`;
+    metrics.worker.textContent = 'ONLINE';
+    metrics.scheduler.textContent = paused ? 'PAUSED' : 'RUNNING';
+    metrics.due.textContent = String(Number(health.queue?.due || 0));
+    metrics.accounts.textContent = `${verified}/${configured}`;
+    renderAccounts(accounts);
+    refreshButton.disabled = needsRefresh.length === 0;
+    status.textContent = `Worker online · ${Number(health.queue?.total || 0)} jobs · ${Number(health.queue?.due || 0)} đến hạn · ${verified}/${configured} tài khoản verified${needsRefresh.length ? ` · ${needsRefresh.length} cần xác minh lại` : ''}.`;
+    lastHealth = health;
+  };
+
   const checkWorker = async () => {
     const { url } = readConfig();
+    refreshButton.disabled = true;
     if (!url) {
       state.textContent = 'CHƯA KẾT NỐI';
+      state.className = 'badge warn';
+      metrics.worker.textContent = 'OFFLINE';
+      metrics.scheduler.textContent = '—';
+      metrics.due.textContent = '—';
+      metrics.accounts.textContent = '—';
+      accountsNode.replaceChildren();
       status.textContent = 'Mở Worker Admin, nhập Worker URL/API token và lưu trong phiên trước.';
       return;
     }
     state.textContent = 'ĐANG KIỂM TRA';
+    state.className = 'badge';
     try {
       const response = await fetch(`${url}/health`, { cache: 'no-store' });
       const health = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(health.error || `HTTP ${response.status}`);
-      state.textContent = health.paused ? 'PAUSED' : 'RUNNING';
-      const accounts = Array.isArray(health.accounts) ? health.accounts : [];
-      const configured = accounts.filter((item) => item.configured).length;
-      const verified = accounts.filter((item) => item.verificationStatus === 'verified').length;
-      status.textContent = `Worker online · ${Number(health.queue?.total || 0)} jobs · ${Number(health.queue?.due || 0)} đến hạn · ${verified}/${configured} tài khoản đã xác minh.`;
+      applyHealth(health);
     } catch (error) {
+      lastHealth = null;
       state.textContent = 'OFFLINE';
+      state.className = 'badge error';
+      metrics.worker.textContent = 'OFFLINE';
+      metrics.scheduler.textContent = '—';
+      metrics.due.textContent = '—';
+      metrics.accounts.textContent = '—';
+      accountsNode.replaceChildren();
       status.textContent = error?.message || 'Không thể kết nối Worker.';
     }
   };
 
+  const refreshVerification = async () => {
+    const { url, token } = readConfig();
+    const accounts = Array.isArray(lastHealth?.accounts) ? lastHealth.accounts : [];
+    const targets = accounts.filter(verificationNeedsRefresh);
+    if (!url || !token) {
+      status.textContent = 'Cần Worker URL và API token trong session để xác minh lại tài khoản.';
+      return;
+    }
+    if (!targets.length) return;
+
+    refreshButton.disabled = true;
+    refreshButton.textContent = 'Đang xác minh…';
+    const failures = [];
+    for (const account of targets) {
+      const platform = String(account.platform || '').trim();
+      if (!platform) continue;
+      try {
+        const response = await fetch(`${url}/v1/accounts/${encodeURIComponent(platform)}/verify`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          failures.push(`${platform}: ${body.error || `HTTP ${response.status}`}`);
+        }
+      } catch (error) {
+        failures.push(`${platform}: ${error?.message || 'network error'}`);
+      }
+    }
+    refreshButton.textContent = 'Làm mới xác minh cần thiết';
+    await checkWorker();
+    if (failures.length) status.textContent = `Xác minh chưa hoàn tất: ${failures.join(' · ')}`;
+  };
+
   document.getElementById('checkWorker').addEventListener('click', checkWorker);
+  refreshButton.addEventListener('click', refreshVerification);
 })();
 </script>
 </body>
