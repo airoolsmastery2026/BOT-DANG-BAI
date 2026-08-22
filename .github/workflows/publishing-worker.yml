@@ -5,12 +5,16 @@ on:
     paths:
       - 'server/publishing-worker*.js'
       - 'server/publishing-control-runtime.js'
+      - 'scripts/verify-worker-accounts*.js'
+      - 'package.json'
       - '.github/workflows/publishing-worker.yml'
   push:
     branches: [main]
     paths:
       - 'server/publishing-worker*.js'
       - 'server/publishing-control-runtime.js'
+      - 'scripts/verify-worker-accounts*.js'
+      - 'package.json'
       - '.github/workflows/publishing-worker.yml'
 
 permissions:
@@ -28,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
       - name: Check syntax
         run: |
           node --check server/publishing-worker-runtime.js
@@ -37,6 +41,8 @@ jobs:
           node --check server/publishing-worker-linkedin.js
           node --check server/publishing-worker-youtube.js
           node --check server/publishing-worker.js
+          node --check scripts/verify-worker-accounts.js
+          node --check scripts/verify-worker-accounts.test.js
       - name: Run worker unit tests
         run: |
           node --test server/publishing-worker-runtime.test.js
@@ -45,3 +51,4 @@ jobs:
           node --test server/publishing-worker-linkedin.test.js
           node --test server/publishing-worker-youtube.test.js
           node --test server/publishing-worker-admin.test.js
+          node --test scripts/verify-worker-accounts.test.js
