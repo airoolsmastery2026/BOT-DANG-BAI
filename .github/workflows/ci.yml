@@ -43,6 +43,7 @@ jobs:
           node --check server/telegram-control.js
           node --check server/ai-content-runtime.js
           node --check server/ai-content-server.js
+          node --check scripts/production-preflight.js
           node --check api/dhp/social-lead.js
           node --check api/dhp/website-health.js
 
@@ -55,6 +56,7 @@ jobs:
           node --test server/telegram-control-runtime.test.js
           node --test server/ai-content-runtime.test.js
           node --test server/ai-content-security.test.js
+          node --test scripts/production-preflight.test.js
 
       - name: Run unit tests
         env:
