@@ -21,7 +21,7 @@ try {
   Push-Location $repositoryRoot
   try {
     $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
-    & npx --no-install electron-builder --win nsis --x64 "--config.directories.output=$resolvedStaging"
+    & npx --no-install electron-builder --win nsis --x64 --publish never "--config.directories.output=$resolvedStaging"
     if ($LASTEXITCODE -ne 0) { throw "electron-builder failed with exit code $LASTEXITCODE." }
   } finally {
     Pop-Location
