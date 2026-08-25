@@ -40,6 +40,29 @@ test('verify detects snapshot corruption', () => {
   assert.equal(result.results.find((item) => item.name === 'queue').ok, false);
 });
 
+test('verify rejects manifest path traversal before reading an external file', () => {
+  const { cwd, env } = makeFixture();
+  createSnapshot({ outDir: './backup', env, cwd });
+  const manifestPath = path.join(cwd, 'backup/manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifest.files[0].filename = '../outside.json';
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  fs.writeFileSync(path.join(cwd, 'outside.json'), 'must-not-be-read');
+
+  assert.throws(() => verifySnapshot(path.join(cwd, 'backup')), /filename/);
+});
+
+test('verify rejects duplicate and malformed manifest entries', () => {
+  const { cwd, env } = makeFixture();
+  createSnapshot({ outDir: './backup', env, cwd });
+  const manifestPath = path.join(cwd, 'backup/manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifest.files[2] = { ...manifest.files[0] };
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+
+  assert.throws(() => verifySnapshot(path.join(cwd, 'backup')), /Duplicate/);
+});
+
 test('restore requires explicit confirmation and roundtrips all state files', () => {
   const { cwd, env } = makeFixture();
   createSnapshot({ outDir: './backup', env, cwd });
@@ -58,4 +81,33 @@ test('restore requires explicit confirmation and roundtrips all state files', ()
   assert.equal(fs.readFileSync(path.join(cwd, 'state/queue.json'), 'utf8'), '{"jobs":[1]}');
   assert.equal(fs.readFileSync(path.join(cwd, 'state/vault.json'), 'utf8'), 'encrypted-vault-ciphertext');
   assert.equal(fs.readFileSync(path.join(cwd, 'state/control.json'), 'utf8'), '{"paused":true}');
+});
+
+test('restore rolls back files already replaced when a later write fails', () => {
+  const { cwd, env } = makeFixture();
+  createSnapshot({ outDir: './backup', env, cwd });
+  const originalQueue = '{"jobs":[]}';
+  const originalVault = 'current-vault';
+  const originalControl = '{"paused":false}';
+  fs.writeFileSync(path.join(cwd, 'state/queue.json'), originalQueue);
+  fs.writeFileSync(path.join(cwd, 'state/vault.json'), originalVault);
+  fs.writeFileSync(path.join(cwd, 'state/control.json'), originalControl);
+
+  let writes = 0;
+  const atomicWriter = (target, data) => {
+    writes += 1;
+    if (writes === 2) throw new Error('simulated disk failure');
+    fs.writeFileSync(target, data);
+  };
+  assert.throws(() => restoreSnapshot({
+    snapshotDir: path.join(cwd, 'backup'),
+    confirmation: 'RESTORE_DHP_STATE',
+    env,
+    cwd,
+    atomicWriter,
+  }), /simulated disk failure/);
+
+  assert.equal(fs.readFileSync(path.join(cwd, 'state/queue.json'), 'utf8'), originalQueue);
+  assert.equal(fs.readFileSync(path.join(cwd, 'state/vault.json'), 'utf8'), originalVault);
+  assert.equal(fs.readFileSync(path.join(cwd, 'state/control.json'), 'utf8'), originalControl);
 });

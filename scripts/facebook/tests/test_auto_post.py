@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ MODULE_PATH = Path(__file__).resolve().parents[1] / "auto_post.py"
 SPEC = importlib.util.spec_from_file_location("facebook_auto_post", MODULE_PATH)
 assert SPEC and SPEC.loader
 AUTO_POST = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = AUTO_POST
 SPEC.loader.exec_module(AUTO_POST)
 
 
