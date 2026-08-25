@@ -27,12 +27,16 @@ AI / Campaign
 
 Mở tab **Kết nối** trong ứng dụng.
 
+Mỗi ô Access Token/ID có liên kết mở trực tiếp cổng chính thức của Meta hoặc TikTok và mục **Cách lấy đúng token & ID**. Liên kết mở ngoài ứng dụng, không mang theo giá trị đã nhập. Không dùng website trung gian để tạo hoặc kiểm tra token.
+
 ### Facebook
 
 Cần:
 
 - Facebook Page Access Token.
 - Facebook Page ID.
+
+Trong Graph API Explorer, có thể dùng `/me/accounts?fields=id,name,access_token,tasks` để lấy cặp Page ID/Page Access Token từ cùng một kết quả.
 
 Ứng dụng kiểm tra token có đọc đúng Page ID đã nhập trước khi coi phép kiểm tra là thành công.
 
@@ -43,6 +47,8 @@ Cần:
 - Instagram Access Token.
 - Instagram Business / Creator ID.
 
+Sau khi liên kết Instagram Professional với Facebook Page, dùng `/me/accounts?fields=id,name,access_token,instagram_business_account` trong Graph API Explorer để lấy `instagram_business_account.id` và Page Access Token tương ứng.
+
 Ứng dụng kiểm tra tài khoản mà token trả về có khớp ID đã cấu hình.
 
 ### TikTok
@@ -50,6 +56,8 @@ Cần:
 Cần:
 
 - TikTok user access token có quyền Content Posting phù hợp.
+
+Token phải được cấp bằng OAuth của TikTok App. Chỉ nhập `access_token`; không nhập Client key, Client secret hoặc refresh token vào giao diện.
 
 Ứng dụng kiểm tra creator posting capability trước khi cho LIVE.
 
