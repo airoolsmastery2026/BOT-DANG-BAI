@@ -71,7 +71,7 @@ const LinkedInControl = () => {
   const normalizedServerUrl = serverUrl.trim().replace(/\/$/, '');
   const cleanApiKey = apiKey.trim();
 
-  const validateServerUrl = () => {
+  const validateServerUrl = useCallback(() => {
     if (!normalizedServerUrl) return 'Cần nhập địa chỉ LinkedIn Server.';
     try {
       const url = new URL(normalizedServerUrl);
@@ -80,7 +80,7 @@ const LinkedInControl = () => {
       return 'Địa chỉ LinkedIn Server không hợp lệ.';
     }
     return '';
-  };
+  }, [normalizedServerUrl]);
 
   const persistSettings = () => {
     const error = validateServerUrl();
@@ -129,7 +129,7 @@ const LinkedInControl = () => {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [normalizedServerUrl, cleanApiKey]);
+  }, [normalizedServerUrl, cleanApiKey, validateServerUrl]);
 
   useEffect(() => {
     refresh(true);

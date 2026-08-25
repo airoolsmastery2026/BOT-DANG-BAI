@@ -58,7 +58,7 @@ const ZaloControl = () => {
   const normalizedBaseUrl = baseUrl.trim().replace(/\/$/, '');
   const api = useMemo(() => new ZaloServerAPI(normalizedBaseUrl, apiKey.trim()), [normalizedBaseUrl, apiKey]);
 
-  const validateServerUrl = () => {
+  const validateServerUrl = useCallback(() => {
     if (!normalizedBaseUrl) return 'Cần nhập địa chỉ Zalo Server.';
     try {
       const url = new URL(normalizedBaseUrl);
@@ -67,7 +67,7 @@ const ZaloControl = () => {
       return 'Địa chỉ Zalo Server không hợp lệ.';
     }
     return '';
-  };
+  }, [normalizedBaseUrl]);
 
   const saveSettings = () => {
     const error = validateServerUrl();
@@ -112,7 +112,7 @@ const ZaloControl = () => {
     } finally {
       setLoading(false);
     }
-  }, [api, normalizedBaseUrl]);
+  }, [api, validateServerUrl]);
 
   useEffect(() => {
     refresh(false);

@@ -152,6 +152,25 @@ Worker tải video YouTube về server trước khi mở resumable upload sessio
 
 Queue và vault dùng ghi file tạm rồi rename. Nếu JSON/schema bị hỏng, worker trả health `503` và từ chối ghi đè file bằng dữ liệu rỗng. Hãy sao lưu file trước khi sửa thủ công.
 
+### Sao lưu và diễn tập khôi phục
+
+Tạo snapshot mới vào một thư mục trống (thư mục `backups/` được Git bỏ qua vì chứa vault đã mã hóa và dữ liệu vận hành):
+
+```bash
+npm run dhp:state-backup -- --out=./backups/dhp-worker-2026-08-25
+npm run dhp:state-verify -- --dir=./backups/dhp-worker-2026-08-25
+```
+
+Mỗi snapshot có manifest SHA-256 và kích thước cho queue, vault, control. Công cụ chỉ chấp nhận đúng tên tệp chuẩn, từ chối manifest trùng lặp/không hợp lệ và không đi theo đường dẫn ra ngoài thư mục snapshot.
+
+Trước khi restore, dừng worker hoặc đặt scheduler ở trạng thái `PAUSED`, tạo thêm một snapshot của trạng thái hiện tại, rồi chạy:
+
+```bash
+npm run dhp:state-restore -- --dir=./backups/dhp-worker-2026-08-25 --confirm=RESTORE_DHP_STATE
+```
+
+Restore kiểm tra toàn vẹn toàn bộ snapshot trước khi ghi. Nếu một lần ghi thất bại giữa chừng, công cụ hoàn tác các tệp đã thay thế; lỗi hoàn tác không bao giờ bị che giấu. Sau restore, chạy lại `dhp:state-verify`, khởi động worker và xác nhận `/health` trước khi `RESUME`.
+
 ## 8. Pause / Resume
 
 Worker đọc state từ `DHP_PUBLISHING_CONTROL_PATH`. Khi scheduler `PAUSED`, worker không gửi bài mới nhưng giữ nguyên queue.

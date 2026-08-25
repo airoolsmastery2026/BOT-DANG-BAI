@@ -23,13 +23,13 @@ const MOCK_SCENARIO_OPTIONS = [
 const QueueRuntimeControls = ({ apiCredentials = {}, onQueueChanged }) => {
   const [action, setAction] = useState('');
   const [notice, setNotice] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [, setRefreshKey] = useState(0);
   const [healthReport, setHealthReport] = useState(null);
   const [preflightReport, setPreflightReport] = useState(null);
   const [schedulerState, setSchedulerState] = useState(null);
   const [mockScenario, setMockScenario] = useState(MOCK_SCENARIO.SUCCESS);
 
-  const summary = useMemo(() => getQueueSummary(), [refreshKey]);
+  const summary = getQueueSummary();
   const connectedPlatforms = useMemo(() => getConnectedPlatforms(apiCredentials), [apiCredentials]);
   const connectedAccounts = useMemo(
     () => Object.values(connectedPlatforms).filter(Boolean).length,

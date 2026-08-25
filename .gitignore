@@ -4,6 +4,7 @@ build/
 .env.local
 .DS_Store
 npm-debug.log*
+backups/
 server/zalo-messages.json
 server/zalo-messages.json.tmp
 server/linkedin-posts.json

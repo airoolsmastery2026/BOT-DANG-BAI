@@ -321,7 +321,7 @@ export const createRateLimiter = (maxRequests, timeWindow) => {
   };
 };
 
-export default {
+const utilities = {
   saveToLocalStorage,
   getFromLocalStorage,
   removeFromLocalStorage,
@@ -349,3 +349,5 @@ export default {
   fetchJSON,
   createRateLimiter,
 };
+
+export default utilities;

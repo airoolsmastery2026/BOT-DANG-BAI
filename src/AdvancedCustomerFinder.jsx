@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Search, Settings, RefreshCw, CheckCircle, AlertCircle, Loader,
+  Settings, RefreshCw, CheckCircle, AlertCircle, Loader,
   TrendingUp, Users, X, Download, Bookmark, BookmarkCheck,
 } from 'lucide-react';
 import { CustomerSearchEngine } from './api_handler';

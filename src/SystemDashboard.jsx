@@ -147,10 +147,7 @@ const SystemDashboard = ({ onNavigate, apiCredentials = {} }) => {
     },
   ], [errors, services]);
 
-  const readiness = useMemo(
-    () => inspectSystemReadiness({ credentials: apiCredentials }),
-    [apiCredentials, updatedAt],
-  );
+  const readiness = inspectSystemReadiness({ credentials: apiCredentials });
   const onlineCount = cards.filter((card) => Boolean(card.data)).length;
   const offlineCount = cards.length - onlineCount;
 

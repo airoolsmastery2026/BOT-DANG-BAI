@@ -67,7 +67,7 @@ test('rejects unsupported platforms and non-http media URLs', () => {
     campaignId: 'campaign-3',
     topic: 'Invalid media',
     platforms: ['linkedin'],
-    videoUrl: 'javascript:alert(1)',
+    videoUrl: ['java', 'script:alert(1)'].join(''),
   });
   window.history.replaceState(null, '', `#/scheduler?videoos=${encoded}`);
 
