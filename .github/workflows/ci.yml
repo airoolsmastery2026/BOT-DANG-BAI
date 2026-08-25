@@ -45,6 +45,7 @@ jobs:
           node --check server/ai-content-server.js
           node --check scripts/production-preflight.js
           node --check scripts/worker-state-snapshot.js
+          node --check desktop/main.cjs
           node --check api/dhp/social-lead.js
           node --check api/dhp/website-health.js
 
@@ -59,6 +60,7 @@ jobs:
           node --test server/ai-content-security.test.js
           node --test scripts/production-preflight.test.js
           node --test scripts/worker-state-snapshot.test.js
+          node --test desktop/main.test.cjs
 
       - name: Run unit tests
         env:
