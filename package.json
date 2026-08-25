@@ -2,25 +2,34 @@
   "name": "bot-dang-bai",
   "version": "1.0.0",
   "description": "Ứng dụng soạn nội dung, lên lịch và phân phối bài đăng đa nền tảng",
+  "author": "Đại Hải Phát",
   "private": true,
+  "main": "desktop/main.cjs",
   "homepage": ".",
   "dependencies": {
+    "lucide-react": "^0.468.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "lucide-react": "^0.468.0"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "react-scripts": "5.0.1",
-    "tailwindcss": "^3.3.2",
-    "postcss": "^8.4.24",
     "autoprefixer": "^10.4.14",
+    "electron": "44.0.0",
+    "electron-builder": "26.15.3",
     "eslint": "^8.40.0",
-    "prettier": "^2.8.8"
+    "postcss": "^8.4.24",
+    "prettier": "^2.8.8",
+    "react-scripts": "5.0.1",
+    "tailwindcss": "^3.3.2"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test --watchAll=false --passWithNoTests",
+    "desktop:check": "node --check desktop/main.cjs && node --test desktop/main.test.cjs",
+    "desktop:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/create-icon.ps1",
+    "desktop:smoke": "npm run build && electron . --smoke-test",
+    "desktop:unpacked": "npm run desktop:icon && npm run build && electron-builder --win dir --x64",
+    "desktop:package": "npm run desktop:check && npm run desktop:icon && npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File desktop/build-installer.ps1",
     "eject": "react-scripts eject",
     "lint": "eslint src --ext .js,.jsx --max-warnings=0",
     "format": "prettier --write \"src/**/*.{js,jsx}\"",
@@ -38,16 +47,90 @@
     "dhp:ai-content": "node server/ai-content-server.js"
   },
   "eslintConfig": {
-    "extends": ["react-app"]
+    "extends": [
+      "react-app"
+    ]
   },
   "browserslist": {
-    "production": [">0.2%", "not dead", "not op_mini all"],
-    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
   },
   "engines": {
     "node": "24.x",
-    "npm": "10.x"
+    "npm": ">=10 <12"
   },
-  "keywords": ["facebook", "instagram", "tiktok", "zalo", "linkedin", "telegram", "gemini", "scheduler", "publishing", "social-media"],
-  "license": "MIT"
+  "keywords": [
+    "facebook",
+    "instagram",
+    "tiktok",
+    "zalo",
+    "linkedin",
+    "telegram",
+    "gemini",
+    "scheduler",
+    "publishing",
+    "social-media"
+  ],
+  "license": "MIT",
+  "build": {
+    "extends": null,
+    "appId": "vn.daihaiphat.botdangbai",
+    "productName": "BOT ĐĂNG BÀI",
+    "copyright": "Copyright © 2026 Đại Hải Phát",
+    "asar": true,
+    "compression": "maximum",
+    "npmRebuild": false,
+    "directories": {
+      "output": "release/windows",
+      "buildResources": "desktop/assets"
+    },
+    "files": [
+      "build/**/*",
+      "!build/**/*.map",
+      "desktop/main.cjs",
+      "desktop/assets/icon.png",
+      "desktop/assets/icon.ico",
+      "package.json"
+    ],
+    "electronLanguages": [
+      "en-US",
+      "vi"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "desktop/assets/icon.ico",
+      "executableName": "BOT-DANG-BAI",
+      "artifactName": "BOT-DANG-BAI-Setup-${version}-${arch}.${ext}",
+      "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "BOT ĐĂNG BÀI",
+      "installerIcon": "desktop/assets/icon.ico",
+      "uninstallerIcon": "desktop/assets/icon.ico",
+      "installerHeaderIcon": "desktop/assets/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    }
+  }
 }

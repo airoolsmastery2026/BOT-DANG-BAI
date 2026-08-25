@@ -198,6 +198,18 @@ Mặc định CRA chạy tại:
 http://localhost:3000
 ```
 
+## Bộ cài Windows
+
+Ứng dụng desktop Windows x64 được đóng gói bằng Electron và NSIS. Máy người dùng không cần cài Node.js hoặc npm.
+
+```powershell
+npm run desktop:package
+```
+
+Installer được tạo tại `release/windows/BOT-DANG-BAI-Setup-1.0.0-x64.exe`. Ứng dụng tiếp tục chạy ở System Tray khi đóng cửa sổ để lịch local không bị dừng; menu tray có tùy chọn thoát hoàn toàn và khởi động cùng Windows.
+
+Xem hướng dẫn cài đặt, dữ liệu và cảnh báo chữ ký tại `WINDOWS_INSTALLER.md`.
+
 ## Kiểm tra chất lượng
 
 ```bash
