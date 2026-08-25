@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const source = fs.readFileSync(path.join(__dirname, 'main.cjs'), 'utf8');
+const builderSource = fs.readFileSync(path.join(__dirname, 'build-installer.ps1'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
 test('desktop renderer has no Node.js privileges', () => {
@@ -47,4 +48,5 @@ test('Windows installer is per-user, uninstallable and excludes source maps', ()
   assert.equal(pkg.build.nsis.deleteAppDataOnUninstall, false);
   assert.ok(pkg.build.files.includes('!build/**/*.map'));
   assert.match(pkg.scripts['desktop:package'], /build-installer\.ps1/);
+  assert.match(builderSource, /--publish never/);
 });
