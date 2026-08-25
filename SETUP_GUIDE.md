@@ -26,6 +26,8 @@ Kết nối
 
 Đây là Account Connection Center duy nhất cho Facebook, Instagram và TikTok.
 
+Ngay cạnh từng ô ID/token có liên kết đến trang chính thức để lấy giá trị tương ứng. Các link này mở trong trình duyệt mặc định và không nhận bất kỳ giá trị nào đang nhập trong ứng dụng.
+
 Sau khi nhập credential:
 
 1. Bấm **Kiểm tra kết nối** trên từng tài khoản; hoặc
@@ -45,6 +47,11 @@ Facebook Page ID
 
 Token phải thuộc Page mà bạn có quyền quản lý và phải có quyền cần thiết cho chức năng đăng Page mà ứng dụng sử dụng.
 
+1. Mở **Meta App Dashboard** từ thẻ Facebook và chọn ứng dụng.
+2. Mở **Graph API Explorer**, cấp `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`.
+3. Chạy `GET /me/accounts?fields=id,name,access_token,tasks`.
+4. Dán `id` vào Facebook Page ID và `access_token` cùng dòng vào Page Access Token.
+
 Sau khi nhập, bấm **Kiểm tra kết nối**. Hệ thống chỉ xác nhận khi Page mà token đọc được khớp đúng Page ID đã cấu hình.
 
 ## 4. Instagram Business / Creator
@@ -57,6 +64,11 @@ Instagram Business / Creator ID
 ```
 
 Tài khoản phải là loại được API chính thức hỗ trợ cho publishing và token phải có quyền phù hợp.
+
+1. Liên kết tài khoản Instagram Professional với Facebook Page quản lý tài khoản đó.
+2. Trong ứng dụng Meta, cấp `instagram_basic`, `instagram_content_publish`, `pages_show_list`.
+3. Chạy `GET /me/accounts?fields=id,name,access_token,instagram_business_account` trong Graph API Explorer.
+4. Dán `instagram_business_account.id` vào Instagram ID và `access_token` của Page cùng dòng vào ô token.
 
 Ứng dụng kiểm tra tài khoản trả về từ token có khớp ID bạn nhập hay không.
 
@@ -71,6 +83,11 @@ TikTok User Access Token
 ```
 
 Token phải được cấp qua OAuth của ứng dụng TikTok Developer và có scope phù hợp với chức năng Content Posting đang dùng.
+
+1. Mở **TikTok Apps**, tạo/chọn ứng dụng và thêm Login Kit cùng Content Posting API.
+2. Xin quyền `video.publish` và cấu hình Redirect URI.
+3. Hoàn tất OAuth rồi đổi authorization code thành user `access_token` theo tài liệu chính thức.
+4. Chỉ dán `access_token`; tuyệt đối không dán Client key, Client secret hoặc refresh token.
 
 Ứng dụng kiểm tra creator posting capability trước LIVE. Video dùng `PULL_FROM_URL` cần URL có thể được TikTok truy cập và phải đáp ứng yêu cầu domain/URL của TikTok Developer.
 

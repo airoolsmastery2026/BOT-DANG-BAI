@@ -11,6 +11,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 
 const REQUIRED_FILES = [
   'src/PlatformConnections.jsx',
+  'src/platform_connection_catalog.js',
   'src/platform_credentials.js',
   'src/platform_connection_service.js',
   'src/meta_publishing_api.js',
@@ -58,10 +59,15 @@ test('LIVE publishing requires verified account state in app runtime', () => {
 
 test('browser UI has one explicit account connection center', () => {
   const connections = read('src/PlatformConnections.jsx');
+  const catalog = read('src/platform_connection_catalog.js');
   assert.match(connections, /Account Connection Center/);
-  assert.match(connections, /Facebook Page/);
-  assert.match(connections, /Instagram Business \/ Creator/);
-  assert.match(connections, /TikTok/);
+  assert.match(connections, /PLATFORM_CONNECTIONS\.map/);
+  assert.match(catalog, /Facebook Page/);
+  assert.match(catalog, /Instagram Business \/ Creator/);
+  assert.match(catalog, /TikTok/);
+  assert.match(catalog, /developers\.facebook\.com\/tools\/explorer/);
+  assert.match(catalog, /facebook\.com\/help\/1503421039731588/);
+  assert.match(catalog, /developers\.tiktok\.com\/apps/);
   assert.match(connections, /Kiểm tra kết nối/);
 });
 
