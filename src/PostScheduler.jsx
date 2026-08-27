@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Calendar,
@@ -24,6 +24,13 @@ import {
   schedulePost,
 } from './post_manager';
 import { clearSchedulerHandoff, loadSchedulerHandoff } from './scheduler_handoff';
+import {
+  createDesktopWorkerJob,
+  isDesktopPublishingWorkerAvailable,
+  listDesktopWorkerJobs,
+  processDesktopWorkerJobs,
+  retryDesktopWorkerJob,
+} from './desktop_publishing_worker';
 
 const STATUS_LABELS = {
   [POST_STATUS.SCHEDULED]: { label: 'Đã lên lịch', color: 'bg-blue-600' },
@@ -34,7 +41,9 @@ const STATUS_LABELS = {
   [POST_STATUS.CANCELLED]: { label: 'Đã hủy', color: 'bg-gray-600' },
 };
 
-const SUPPORTED_PLATFORMS = ['facebook', 'instagram', 'tiktok'];
+const SUPPORTED_PLATFORMS = ['facebook', 'instagram', 'tiktok', 'linkedin', 'pinterest', 'youtube'];
+const DIRECT_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok']);
+const PERSISTENT_PLATFORMS = new Set(['linkedin', 'pinterest', 'youtube']);
 
 const toDatetimeLocal = (isoOrNull) => {
   const date = isoOrNull ? new Date(isoOrNull) : new Date(Date.now() + 5 * 60_000);
@@ -75,6 +84,7 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
   const [aiHealth, setAiHealth] = useState(null);
 
   const [posts, setPosts] = useState(getScheduledPosts());
+  const [workerJobs, setWorkerJobs] = useState([]);
   const [autoPublishOn, setAutoPublishOn] = useState(false);
   const [lastCheck, setLastCheck] = useState(null);
   const [processing, setProcessing] = useState(false);
@@ -92,8 +102,24 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
     [connectedPlatforms],
   );
 
-  const refreshPosts = () => setPosts(getScheduledPosts());
+  const desktopWorkerAvailable = isDesktopPublishingWorkerAvailable();
+  const refreshWorkerJobs = useCallback(async () => {
+    if (!desktopWorkerAvailable) return [];
+    const jobs = await listDesktopWorkerJobs();
+    const normalized = (Array.isArray(jobs) ? jobs : []).map((job) => ({ ...job, queueSource: 'persistent-worker' }));
+    setWorkerJobs(normalized);
+    return normalized;
+  }, [desktopWorkerAvailable]);
+  const refreshPosts = useCallback(() => {
+    setPosts(getScheduledPosts());
+    if (desktopWorkerAvailable) void refreshWorkerJobs().catch(() => undefined);
+  }, [desktopWorkerAvailable, refreshWorkerJobs]);
   const showNotice = (type, message) => setNotice({ type, message });
+
+  useEffect(() => {
+    if (!desktopWorkerAvailable) return;
+    void refreshWorkerJobs().catch((error) => setNotice({ type: 'error', message: error.message || 'Không thể đọc hàng đợi worker.' }));
+  }, [desktopWorkerAvailable, refreshWorkerJobs]);
 
   useEffect(() => {
     const handoff = loadSchedulerHandoff();
@@ -102,6 +128,7 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
     setCampaignContext(handoff);
     setTopic(handoff.topic);
     setContent(handoff.content || '');
+    setImageUrl(handoff.imageUrl || '');
     setVideoUrl(handoff.videoUrl || '');
     setPlatforms(handoff.platforms.filter((platform) => connectedPlatforms[platform]));
     if (handoff.publishAt) setScheduledTime(toDatetimeLocal(handoff.publishAt));
@@ -136,7 +163,16 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
     if (!isValidHttpUrl(imageUrl)) return 'URL ảnh không hợp lệ.';
     if (!isValidHttpUrl(videoUrl)) return 'URL video không hợp lệ.';
     if (platforms.includes('instagram') && !imageUrl.trim()) return 'Instagram yêu cầu URL ảnh.';
+    if (platforms.includes('pinterest') && !imageUrl.trim()) return 'Pinterest yêu cầu URL ảnh.';
     if (platforms.includes('tiktok') && !videoUrl.trim()) return 'TikTok yêu cầu URL video.';
+    if (platforms.includes('youtube') && !videoUrl.trim()) return 'YouTube/Shorts yêu cầu URL video.';
+    if (platforms.includes('youtube') && !topic.trim()) return 'YouTube/Shorts yêu cầu chủ đề để làm tiêu đề video.';
+    if (platforms.some((platform) => PERSISTENT_PLATFORMS.has(platform)) && !desktopWorkerAvailable) {
+      return 'LinkedIn, Pinterest và YouTube cần bản desktop có Publishing Worker tích hợp.';
+    }
+    if (platforms.some((platform) => PERSISTENT_PLATFORMS.has(platform)) && recurrence !== RECURRENCE.NONE) {
+      return 'Tác vụ worker 24/7 chưa hỗ trợ lịch lặp; hãy tạo từng mốc lịch từ chiến dịch để giữ idempotency.';
+    }
     return null;
   };
 
@@ -205,29 +241,46 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
     setProcessing(true);
     setNotice(null);
     try {
-      schedulePost({
+      const scheduledAt = postNow ? new Date().toISOString() : new Date(scheduledTime).toISOString();
+      const directPlatforms = platforms.filter((platform) => DIRECT_PLATFORMS.has(platform));
+      const persistentPlatforms = platforms.filter((platform) => PERSISTENT_PLATFORMS.has(platform));
+      const basePost = {
         content: content.trim(),
-        platforms,
-        scheduledTime: postNow ? new Date().toISOString() : new Date(scheduledTime).toISOString(),
+        scheduledTime: scheduledAt,
         imageUrl: imageUrl.trim(),
         videoUrl: videoUrl.trim(),
-        recurrence,
         targetIds: {
           facebook: targetIds.facebook.trim(),
           instagram: targetIds.instagram.trim(),
         },
         campaignId: campaignContext?.campaignId || null,
-      });
+      };
+
+      if (persistentPlatforms.length) {
+        await createDesktopWorkerJob({
+          ...basePost,
+          platforms: persistentPlatforms,
+          title: topic.trim().slice(0, 100),
+          privacyStatus: 'private',
+        });
+      }
+      if (directPlatforms.length) {
+        schedulePost({ ...basePost, platforms: directPlatforms, recurrence });
+      }
 
       if (postNow) {
-        const processed = await checkAndPublishDuePosts(apiCredentials);
+        const directProcessed = directPlatforms.length ? await checkAndPublishDuePosts(apiCredentials) : [];
+        const workerProcessed = persistentPlatforms.length ? await processDesktopWorkerJobs() : { processed: [] };
         setLastCheck(new Date());
+        const processed = [...directProcessed, ...(workerProcessed?.processed || [])];
         const failed = processed.some((post) => [POST_STATUS.FAILED, POST_STATUS.DEAD_LETTER].includes(post.status));
         showNotice(failed ? 'error' : 'success', failed
           ? 'Đã xử lý nhưng có nền tảng đăng thất bại. Kiểm tra lịch sử.'
-          : 'Đã xử lý yêu cầu đăng ngay.');
+          : `Đã xử lý yêu cầu đăng ngay qua ${persistentPlatforms.length ? 'Persistent Worker' : 'hàng đợi cục bộ'}.`);
       } else {
-        showNotice('success', 'Đã thêm bài vào hàng đợi.');
+        showNotice('success', persistentPlatforms.length
+          ? 'Đã thêm bài vào Persistent Worker; ứng dụng tiếp tục xử lý khi thu nhỏ xuống khay hệ thống.'
+          : 'Đã thêm bài vào hàng đợi.');
       }
 
       setContent('');
@@ -247,7 +300,9 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
     setProcessing(true);
     setNotice(null);
     try {
-      const processed = await checkAndPublishDuePosts(apiCredentials);
+      const directProcessed = await checkAndPublishDuePosts(apiCredentials);
+      const workerResult = desktopWorkerAvailable ? await processDesktopWorkerJobs() : { processed: [] };
+      const processed = [...directProcessed, ...(workerResult?.processed || [])];
       setLastCheck(new Date());
       refreshPosts();
       showNotice(processed.length ? 'success' : 'info', processed.length
@@ -272,14 +327,15 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
       }
     }, 60_000);
     return () => clearInterval(interval);
-  }, [autoPublishOn, apiCredentials]);
+  }, [autoPublishOn, apiCredentials, refreshPosts]);
 
-  const upcoming = useMemo(() => posts
+  const allPosts = useMemo(() => [...posts, ...workerJobs], [posts, workerJobs]);
+  const upcoming = useMemo(() => allPosts
     .filter((post) => post.status === POST_STATUS.SCHEDULED)
-    .sort((a, b) => new Date(a.scheduledTime) - new Date(b.scheduledTime)), [posts]);
-  const history = useMemo(() => posts
+    .sort((a, b) => new Date(a.scheduledTime) - new Date(b.scheduledTime)), [allPosts]);
+  const history = useMemo(() => allPosts
     .filter((post) => post.status !== POST_STATUS.SCHEDULED)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)), [posts]);
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)), [allPosts]);
 
   return (
     <div className="space-y-8">
@@ -340,7 +396,7 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
         <div className="mb-4 grid gap-4 md:grid-cols-2"><input value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} placeholder="URL ảnh" className="rounded bg-gray-700 px-3 py-2" /><input value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="URL video" className="rounded bg-gray-700 px-3 py-2" /></div>
 
         <div className="mb-4 flex flex-wrap gap-2">{SUPPORTED_PLATFORMS.map((platform) => <button type="button" key={platform} disabled={!connectedPlatforms[platform]} onClick={() => togglePlatform(platform)} aria-pressed={platforms.includes(platform)} className={`rounded-lg px-4 py-2 text-sm capitalize ${platforms.includes(platform) ? 'bg-purple-600' : 'bg-gray-700'} ${!connectedPlatforms[platform] ? 'cursor-not-allowed opacity-30' : ''}`}>{platform}</button>)}</div>
-        {availablePlatforms.length === 0 && <p className="mb-4 text-xs text-yellow-300">Hãy kết nối Facebook, Instagram hoặc TikTok trước khi lên lịch.</p>}
+        {availablePlatforms.length === 0 && <p className="mb-4 text-xs text-yellow-300">Hãy kết nối và xác minh ít nhất một tài khoản trước khi lên lịch.</p>}
 
         <div className="mb-4 grid gap-4 md:grid-cols-2"><input value={targetIds.facebook} onChange={(event) => setTargetIds((current) => ({ ...current, facebook: event.target.value }))} placeholder="Facebook Page ID (tùy chọn ghi đè)" className="rounded bg-gray-700 px-3 py-2" /><input value={targetIds.instagram} onChange={(event) => setTargetIds((current) => ({ ...current, instagram: event.target.value }))} placeholder="Instagram Business ID (tùy chọn ghi đè)" className="rounded bg-gray-700 px-3 py-2" /></div>
 
@@ -354,9 +410,9 @@ const PostScheduler = ({ connectedPlatforms = {}, apiCredentials = {} }) => {
         <p className="mt-3 text-xs text-amber-300">Lưu ý: bộ kiểm tra 60 giây chạy trong trình duyệt và chỉ hoạt động khi trang đang mở.</p>
       </div>
 
-      <section><h3 className="mb-3 flex items-center gap-2 text-xl font-bold"><Clock className="h-5 w-5" /> Hàng đợi ({upcoming.length})</h3>{upcoming.length === 0 ? <p className="text-sm text-gray-400">Chưa có bài nào được lên lịch.</p> : <div className="space-y-3">{upcoming.map((post) => <article key={post.id} className="flex gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4"><div className="min-w-0 flex-1"><p className="line-clamp-3 whitespace-pre-wrap text-sm">{post.content}</p><p className="mt-2 text-xs text-gray-400">{new Date(post.scheduledTime).toLocaleString('vi-VN')} · {post.platforms.join(', ')}</p></div><button type="button" onClick={() => { cancelPost(post.id); refreshPosts(); }} aria-label="Hủy bài" className="text-yellow-400"><XCircle className="h-5 w-5" /></button><button type="button" onClick={() => { deletePost(post.id); refreshPosts(); }} aria-label="Xóa bài" className="text-red-400"><Trash2 className="h-5 w-5" /></button></article>)}</div>}</section>
+      <section><h3 className="mb-3 flex items-center gap-2 text-xl font-bold"><Clock className="h-5 w-5" /> Hàng đợi ({upcoming.length})</h3>{upcoming.length === 0 ? <p className="text-sm text-gray-400">Chưa có bài nào được lên lịch.</p> : <div className="space-y-3">{upcoming.map((post) => <article key={`${post.queueSource || 'browser'}-${post.id}`} className="flex gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4"><div className="min-w-0 flex-1"><p className="line-clamp-3 whitespace-pre-wrap text-sm">{post.content}</p><p className="mt-2 text-xs text-gray-400">{new Date(post.scheduledTime).toLocaleString('vi-VN')} · {post.platforms.join(', ')} · {post.queueSource === 'persistent-worker' ? 'Worker 24/7' : 'Phiên ứng dụng'}</p></div>{post.queueSource !== 'persistent-worker' && <><button type="button" onClick={() => { cancelPost(post.id); refreshPosts(); }} aria-label="Hủy bài" className="text-yellow-400"><XCircle className="h-5 w-5" /></button><button type="button" onClick={() => { deletePost(post.id); refreshPosts(); }} aria-label="Xóa bài" className="text-red-400"><Trash2 className="h-5 w-5" /></button></>}</article>)}</div>}</section>
 
-      <section><h3 className="mb-3 text-xl font-bold">Lịch sử</h3>{history.length === 0 ? <p className="text-sm text-gray-400">Chưa có bài nào được xử lý.</p> : <div className="space-y-3">{history.map((post) => { const statusInfo = STATUS_LABELS[post.status] || STATUS_LABELS[POST_STATUS.SCHEDULED]; return <article key={post.id} className="flex gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4"><div className="min-w-0 flex-1"><div className="mb-1 flex items-center gap-2"><span className={`rounded-full px-2 py-0.5 text-xs ${statusInfo.color}`}>{statusInfo.label}</span>{[POST_STATUS.FAILED, POST_STATUS.DEAD_LETTER].includes(post.status) && <AlertTriangle className="h-4 w-4 text-red-400" />}{post.status === POST_STATUS.PUBLISHED && <CheckCircle2 className="h-4 w-4 text-green-400" />}</div><p className="line-clamp-2 whitespace-pre-wrap text-sm">{post.content}</p>{post.results && Object.entries(post.results).map(([platform, result]) => !result.success && <p key={platform} className="mt-1 text-xs text-red-400">{platform}: {result.error}</p>)}</div><button type="button" onClick={() => { deletePost(post.id); refreshPosts(); }} aria-label="Xóa lịch sử" className="text-red-400"><Trash2 className="h-5 w-5" /></button></article>; })}</div>}</section>
+      <section><h3 className="mb-3 text-xl font-bold">Lịch sử</h3>{history.length === 0 ? <p className="text-sm text-gray-400">Chưa có bài nào được xử lý.</p> : <div className="space-y-3">{history.map((post) => { const statusInfo = STATUS_LABELS[post.status] || STATUS_LABELS[POST_STATUS.SCHEDULED]; return <article key={`${post.queueSource || 'browser'}-${post.id}`} className="flex gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4"><div className="min-w-0 flex-1"><div className="mb-1 flex items-center gap-2"><span className={`rounded-full px-2 py-0.5 text-xs ${statusInfo.color}`}>{statusInfo.label}</span>{post.queueSource === 'persistent-worker' && <span className="rounded-full bg-sky-900 px-2 py-0.5 text-xs text-sky-200">Worker 24/7</span>}{[POST_STATUS.FAILED, POST_STATUS.DEAD_LETTER].includes(post.status) && <AlertTriangle className="h-4 w-4 text-red-400" />}{post.status === POST_STATUS.PUBLISHED && <CheckCircle2 className="h-4 w-4 text-green-400" />}</div><p className="line-clamp-2 whitespace-pre-wrap text-sm">{post.content}</p>{post.results && Object.entries(post.results).map(([platform, result]) => !result.success && <p key={platform} className="mt-1 text-xs text-red-400">{platform}: {result.error}</p>)}</div>{post.queueSource === 'persistent-worker' && [POST_STATUS.FAILED, POST_STATUS.DEAD_LETTER].includes(post.status) ? <button type="button" onClick={async () => { try { await retryDesktopWorkerJob(post.id); await refreshWorkerJobs(); showNotice('success', 'Đã đưa job worker vào hàng đợi retry.'); } catch (error) { showNotice('error', error.message || 'Không thể retry job.'); } }} aria-label="Retry job worker" className="text-amber-300"><Repeat className="h-5 w-5" /></button> : post.queueSource !== 'persistent-worker' && <button type="button" onClick={() => { deletePost(post.id); refreshPosts(); }} aria-label="Xóa lịch sử" className="text-red-400"><Trash2 className="h-5 w-5" /></button>}</article>; })}</div>}</section>
     </div>
   );
 };

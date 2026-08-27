@@ -18,6 +18,11 @@ import AIOrchestration from './AIOrchestration';
 import DhpMediaInbox from './DhpMediaInbox';
 import { getConnectedPlatforms, loadPlatformCredentials } from './platform_credentials';
 import { consumeVideoOsHandoff } from './video_os_handoff';
+import {
+  getDesktopWorkerHealth,
+  isDesktopPublishingWorkerAvailable,
+  mapWorkerAccounts,
+} from './desktop_publishing_worker';
 
 const TAB_STORAGE_KEY = 'bot_dang_bai_active_tab';
 
@@ -57,16 +62,21 @@ const App = () => {
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [apiCredentials, setApiCredentials] = useState(loadPlatformCredentials);
   const [connectionVerification, setConnectionVerification] = useState({});
+  const [persistentAccounts, setPersistentAccounts] = useState({});
   const [queueRefreshKey, setQueueRefreshKey] = useState(0);
 
-  const connectedPlatforms = useMemo(() => getConnectedPlatforms(apiCredentials), [apiCredentials]);
+  const connectedPlatforms = useMemo(() => ({
+    ...getConnectedPlatforms(apiCredentials),
+    ...Object.fromEntries(Object.entries(persistentAccounts).map(([platform, account]) => [platform, account?.configured === true])),
+  }), [apiCredentials, persistentAccounts]);
   const connectedPlatformCount = useMemo(
     () => Object.values(connectedPlatforms).filter(Boolean).length,
     [connectedPlatforms],
   );
-  const verifiedPlatforms = useMemo(() => Object.fromEntries(
-    Object.entries(connectionVerification).map(([platform, result]) => [platform, result?.ok === true]),
-  ), [connectionVerification]);
+  const verifiedPlatforms = useMemo(() => ({
+    ...Object.fromEntries(Object.entries(connectionVerification).map(([platform, result]) => [platform, result?.ok === true])),
+    ...Object.fromEntries(Object.entries(persistentAccounts).map(([platform, account]) => [platform, account?.ready === true])),
+  }), [connectionVerification, persistentAccounts]);
   const verifiedPlatformCount = useMemo(
     () => Object.entries(connectedPlatforms).filter(([platform, connected]) => connected && verifiedPlatforms[platform]).length,
     [connectedPlatforms, verifiedPlatforms],
@@ -76,6 +86,13 @@ const App = () => {
     __requireVerification: true,
     __verifiedPlatforms: verifiedPlatforms,
   }), [apiCredentials, verifiedPlatforms]);
+
+  useEffect(() => {
+    if (!isDesktopPublishingWorkerAvailable()) return;
+    getDesktopWorkerHealth()
+      .then((health) => setPersistentAccounts(mapWorkerAccounts(health)))
+      .catch(() => setPersistentAccounts({}));
+  }, []);
 
   useEffect(() => {
     try {
@@ -132,7 +149,7 @@ const App = () => {
         {activeTab === 'drafts' && <CampaignDrafts onNavigate={setActiveTab} />}
         {activeTab === 'media-inbox' && <DhpMediaInbox connectedPlatforms={connectedPlatforms} onQueueChanged={() => setQueueRefreshKey((value) => value + 1)} />}
         {activeTab === 'queue' && <><QueueRuntimeControls apiCredentials={runtimeCredentials} onQueueChanged={() => setQueueRefreshKey((value) => value + 1)} /><QueueMonitor key={queueRefreshKey} apiCredentials={runtimeCredentials} /></>}
-        {activeTab === 'connections' && <PlatformConnections credentials={apiCredentials} initialVerification={connectionVerification} onChange={setApiCredentials} onVerificationChange={setConnectionVerification} />}
+        {activeTab === 'connections' && <PlatformConnections credentials={apiCredentials} initialVerification={connectionVerification} onChange={setApiCredentials} onVerificationChange={setConnectionVerification} onPersistentAccountsChange={setPersistentAccounts} />}
         {activeTab === 'notifications' && <NotificationCenter />}
         {activeTab === 'scheduler' && (
           <div className="dhp-page p-4 text-white md:p-8"><div className="mx-auto max-w-7xl">

@@ -1,4 +1,5 @@
 import { DHP_BRAND_MEMORY } from './brand_memory';
+import { evaluateMasterSkillOutput, getMasterSkillForStage } from './master_skill_catalog';
 
 const BASE_RULES = [
   'Chỉ dùng dữ liệu được cung cấp hoặc đã xác minh.',
@@ -122,10 +123,13 @@ export const AI_AGENT_CONTRACTS = {
 export function buildAgentInstruction(stageId, payload = {}) {
   const contract = AI_AGENT_CONTRACTS[stageId];
   if (!contract) throw new Error(`Không tìm thấy AI contract: ${stageId}`);
+  const masterSkill = getMasterSkillForStage(stageId);
   return {
     role: contract.role,
     systemPrompt: contract.systemPrompt,
     rules: BASE_RULES,
+    masterSkill,
+    qualityGates: masterSkill?.qualityGates || [],
     brandMemory: DHP_BRAND_MEMORY,
     requiredInputs: contract.requiredInputs,
     outputSchema: contract.outputSchema,
@@ -136,9 +140,8 @@ export function buildAgentInstruction(stageId, payload = {}) {
 export function validateAgentOutput(stageId, output) {
   const contract = AI_AGENT_CONTRACTS[stageId];
   if (!contract || !output || typeof output !== 'object' || Array.isArray(output)) {
-    return { valid: false, errors: ['Đầu ra không phải object JSON hợp lệ.'] };
+    return { valid: false, score: 0, errors: ['Đầu ra không phải object JSON hợp lệ.'], warnings: [], checks: [] };
   }
   const requiredKeys = Object.keys(contract.outputSchema);
-  const missing = requiredKeys.filter((key) => !(key in output));
-  return { valid: missing.length === 0, errors: missing.map((key) => `Thiếu trường ${key}.`) };
+  return evaluateMasterSkillOutput(stageId, output, requiredKeys);
 }

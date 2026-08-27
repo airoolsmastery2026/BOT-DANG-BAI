@@ -24,6 +24,7 @@ import {
   verifyPlatformConnection,
 } from "./platform_connection_service";
 import { PLATFORM_CONNECTIONS } from "./platform_connection_catalog";
+import PersistentPlatformConnections from "./PersistentPlatformConnections";
 
 const emptyCredentials = {
   facebook_token: "",
@@ -49,6 +50,7 @@ const PlatformConnections = ({
   initialVerification = {},
   onChange = () => undefined,
   onVerificationChange = () => undefined,
+  onPersistentAccountsChange = () => undefined,
 }) => {
   const [form, setForm] = useState({ ...emptyCredentials, ...credentials });
   const [notice, setNotice] = useState(null);
@@ -216,12 +218,12 @@ const PlatformConnections = ({
             Kết nối tài khoản mạng xã hội
           </h2>
           <p className="mt-2 max-w-3xl text-gray-300">
-            Thêm tài khoản dùng để đăng bài và kiểm tra kết nối ngay tại đây.
-            Token chỉ được giữ trong sessionStorage và tự mất khi đóng phiên
-            trình duyệt.
+            Facebook, Instagram và TikTok bên dưới dùng kết nối nhanh theo phiên.
+            LinkedIn, Pinterest và YouTube/Shorts dùng worker 24/7 với vault mã hóa
+            trong bản cài Windows.
           </p>
           <p className="mt-2 text-sm text-gray-400">
-            Đủ cấu hình: {configuredCount}/3 · Đã kiểm tra trong phiên:{" "}
+            Kết nối nhanh đủ cấu hình: {configuredCount}/3 · Đã kiểm tra trong phiên:{" "}
             {verifiedCount}/{configuredCount}
           </p>
         </div>
@@ -486,6 +488,8 @@ const PlatformConnections = ({
             <Trash2 className="h-4 w-4" /> Xóa toàn bộ kết nối
           </button>
         </div>
+
+        <PersistentPlatformConnections onAccountsChange={onPersistentAccountsChange} />
       </div>
     </section>
   );

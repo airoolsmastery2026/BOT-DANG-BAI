@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "updatedAt": "2026-08-02T03:12:00.000Z",
+  "updatedAt": "2026-08-27T05:05:00.000Z",
   "skills": [
     {
       "id": "one-click-campaign",
@@ -9,6 +9,14 @@
       "packagePath": "skills/one-click-campaign",
       "metadataPath": "skills/one-click-campaign/metadata.json",
       "runtimeEntrypoint": "src/campaign_orchestrator.js"
+    },
+    {
+      "id": "dhp-master-content-system",
+      "version": "1.0.0",
+      "enabled": true,
+      "packagePath": "skills/dhp-master-content-system",
+      "metadataPath": "skills/dhp-master-content-system/metadata.json",
+      "runtimeEntrypoint": "src/master_content_skill_runtime.js"
     }
   ],
   "capabilities": [
@@ -17,6 +25,10 @@
     "platform-content-generator",
     "media-job-planner",
     "campaign-readiness-validator",
-    "campaign-storage"
+    "campaign-storage",
+    "master-skill-router",
+    "evidence-gate",
+    "quality-scorer",
+    "human-approval-gate"
   ]
 }

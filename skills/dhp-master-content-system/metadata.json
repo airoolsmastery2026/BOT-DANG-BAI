@@ -1,0 +1,25 @@
+{
+  "id": "dhp-master-content-system",
+  "name": "DHP Master Content System",
+  "version": "1.0.0",
+  "category": "orchestration",
+  "description": "Master skill pack cho toàn bộ chuỗi nội dung đa nền tảng có evidence gate, QA và human approval.",
+  "entrypoint": "src/master_content_skill_runtime.js",
+  "dependencies": [
+    "master-skill-router",
+    "evidence-gate",
+    "quality-scorer",
+    "human-approval-gate"
+  ],
+  "timeoutMs": 5000,
+  "retry": { "maxAttempts": 1, "backoffMs": 0 },
+  "context": [
+    "skills/context/brand-guideline.md",
+    "skills/context/customer-persona.md",
+    "skills/context/marketing-channels.md",
+    "skills/context/product-catalog.md",
+    "skills/dhp-master-content-system/references/quality-gates.md"
+  ],
+  "inputSchema": "input.schema.json",
+  "outputSchema": "output.schema.json"
+}

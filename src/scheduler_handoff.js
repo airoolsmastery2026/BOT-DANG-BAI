@@ -1,6 +1,13 @@
 export const SCHEDULER_HANDOFF_STORAGE_KEY = 'bot_dang_bai_scheduler_handoff';
 
-const SUPPORTED_SCHEDULER_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok']);
+const SUPPORTED_SCHEDULER_PLATFORMS = new Set([
+  'facebook',
+  'instagram',
+  'tiktok',
+  'linkedin',
+  'pinterest',
+  'youtube',
+]);
 const MAX_SCHEDULE_SLOTS = 365;
 
 function normalizeScheduleSlots(value) {
@@ -73,6 +80,7 @@ export function normalizeSchedulerHandoff(value) {
     hasImageJob: jobs.some((job) => job.type === 'image'),
     hasVideoJob: Boolean(value.videoUrl) || jobs.some((job) => job.type === 'video'),
     content: String(value.content || '').slice(0, 50_000),
+    imageUrl: normalizePublicUrl(value.imageUrl),
     videoUrl: normalizePublicUrl(value.videoUrl),
     source: String(value.source || '').slice(0, 80),
     sourceJobId: String(value.sourceJobId || '').slice(0, 160),

@@ -5,6 +5,7 @@ release/
 .env.local
 .DS_Store
 npm-debug.log*
+dev-server*.log
 backups/
 server/zalo-messages.json
 server/zalo-messages.json.tmp

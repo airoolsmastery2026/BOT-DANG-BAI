@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Bot, CheckCircle2, ChevronRight, ClipboardCheck, FileJson, LockKeyhole,
+  Bot, BrainCircuit, CheckCircle2, ChevronRight, ClipboardCheck, FileJson, Gauge, LockKeyhole,
   Play, Plus, RotateCcw, Route, Save, ShieldCheck, UserCheck,
 } from 'lucide-react';
 import { AI_PRODUCTION_STAGES, AI_ROUTING_RULES } from './ai_production_workflow';
-import { AI_AGENT_CONTRACTS, buildAgentInstruction, validateAgentOutput } from './ai_agent_contracts';
+import { AI_AGENT_CONTRACTS, validateAgentOutput } from './ai_agent_contracts';
 import { DHP_BRAND_MEMORY } from './brand_memory';
 import {
   STAGE_STATUS, approveStage, createProductionRun, getRunProgress, loadProductionRuns,
   requestStageRevision, saveProductionRuns, startStage, submitStageOutput,
 } from './ai_production_runs';
+import { MASTER_SKILLS, getMasterSkillForStage } from './master_skill_catalog';
+import { masterContentSkillRuntime } from './master_content_skill_runtime';
 
 const STATUS_LABELS = {
   locked: 'Đang khóa', ready: 'Sẵn sàng', running: 'Đang thực hiện', review: 'Chờ kiểm tra',
@@ -41,6 +43,11 @@ const AIOrchestration = () => {
   const selected = useMemo(() => AI_PRODUCTION_STAGES.find((stage) => stage.id === selectedId) || AI_PRODUCTION_STAGES[0], [selectedId]);
   const selectedRunStage = activeRun?.stages.find((stage) => stage.id === selected.id) || null;
   const contract = AI_AGENT_CONTRACTS[selected.id] || null;
+  const masterSkill = getMasterSkillForStage(selected.id);
+  const draftAssessment = useMemo(() => {
+    if (!contract) return null;
+    try { return validateAgentOutput(selected.id, JSON.parse(jsonDraft)); } catch { return null; }
+  }, [contract, jsonDraft, selected.id]);
 
   useEffect(() => {
     setJsonDraft(selectedRunStage?.output ? JSON.stringify(selectedRunStage.output, null, 2) : '{}');
@@ -82,7 +89,9 @@ const AIOrchestration = () => {
       updateActiveRun((run) => submitStageOutput(run, selected.id, output, validation));
       setNotice({
         type: validation.valid ? 'success' : 'error',
-        text: validation.valid ? 'Đầu ra JSON hợp lệ và đã chuyển sang chờ kiểm tra.' : validation.errors.join(' '),
+        text: validation.valid
+          ? `Master Skill QA đạt ${validation.score}/100 và đã chuyển sang chờ kiểm tra.${validation.warnings.length ? ` Cảnh báo: ${validation.warnings.join(' ')}` : ''}`
+          : `Master Skill QA ${validation.score}/100: ${validation.errors.join(' ')}`,
       });
     } catch (error) {
       setNotice({ type: 'error', text: `JSON không hợp lệ: ${error.message}` });
@@ -101,10 +110,13 @@ const AIOrchestration = () => {
     setNotice({ type: 'error', text: 'Đã trả công đoạn về trạng thái cần sửa.' });
   };
 
-  const instruction = activeRun && contract ? buildAgentInstruction(selected.id, {
-    campaign: { name: activeRun.name, topic: activeRun.topic, service: activeRun.service, objective: activeRun.objective, channels: activeRun.channels },
-    previousOutputs: activeRun.stages.filter((stage) => stage.output).map((stage) => ({ stageId: stage.id, output: stage.output })),
-  }) : null;
+  const instruction = activeRun && contract ? masterContentSkillRuntime.execute({
+    stageId: selected.id,
+    payload: {
+      campaign: { name: activeRun.name, topic: activeRun.topic, service: activeRun.service, objective: activeRun.objective, channels: activeRun.channels },
+      previousOutputs: activeRun.stages.filter((stage) => stage.output).map((stage) => ({ stageId: stage.id, output: stage.output })),
+    },
+  }).instruction : null;
 
   return (
     <div className="dhp-page px-4 py-6 text-slate-100 md:px-8 md:py-8">
@@ -189,6 +201,7 @@ const AIOrchestration = () => {
               <div className="grid gap-5 xl:grid-cols-2">
                 <div className="dhp-panel rounded-2xl p-5">
                   <h4 className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.14em] text-slate-400"><ClipboardCheck className="h-4 w-4" /> Prompt và hợp đồng</h4>
+                  {masterSkill && <div className="mt-4 rounded-xl border border-violet-400/20 bg-violet-400/5 p-4"><p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-violet-300"><BrainCircuit className="h-4 w-4" /> {masterSkill.name} · v{masterSkill.version}</p><p className="mt-2 text-sm leading-6 text-slate-300">{masterSkill.summary}</p><div className="mt-3 space-y-1.5">{masterSkill.qualityGates.map((gate) => <p key={gate} className="flex gap-2 text-xs text-violet-100"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-300" />{gate}</p>)}</div></div>}
                   <p className="mt-4 text-sm leading-6 text-slate-300">{contract.systemPrompt}</p>
                   <p className="mt-4 text-xs font-bold text-amber-300">Đầu vào bắt buộc</p>
                   <div className="mt-2 flex flex-wrap gap-2">{contract.requiredInputs.map((item) => <span key={item} className="rounded-full border border-white/10 px-2.5 py-1 text-xs text-slate-300">{item}</span>)}</div>
@@ -196,7 +209,7 @@ const AIOrchestration = () => {
                 </div>
 
                 <div className="dhp-panel rounded-2xl p-5">
-                  <h4 className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.14em] text-slate-400"><FileJson className="h-4 w-4" /> Đầu ra JSON</h4>
+                  <div className="flex items-center justify-between gap-3"><h4 className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.14em] text-slate-400"><FileJson className="h-4 w-4" /> Đầu ra JSON</h4>{draftAssessment && <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-bold ${draftAssessment.valid ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-amber-400/30 bg-amber-400/10 text-amber-300'}`}><Gauge className="h-3.5 w-3.5" /> QA {draftAssessment.score}/100</span>}</div>
                   <textarea value={jsonDraft} onChange={(e) => setJsonDraft(e.target.value)} rows="16" disabled={!activeRun || selectedRunStage?.status === STAGE_STATUS.LOCKED} className="mt-4 w-full rounded-xl border border-white/10 bg-slate-950/50 p-3 font-mono text-xs text-slate-200 disabled:opacity-40" />
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button type="button" onClick={handleStart} disabled={!activeRun || ![STAGE_STATUS.READY, STAGE_STATUS.REVISION].includes(selectedRunStage?.status)} className="inline-flex items-center gap-2 rounded-lg bg-sky-500 px-3 py-2 text-sm font-bold text-slate-950 disabled:opacity-40"><Play className="h-4 w-4" /> Bắt đầu</button>
@@ -220,6 +233,11 @@ const AIOrchestration = () => {
         <section className="grid gap-5 lg:grid-cols-2">
           <div className="dhp-panel rounded-2xl p-6"><h3 className="text-xl font-bold text-white">Bộ nhớ thương hiệu đang áp dụng</h3><p className="mt-3 text-sm leading-6 text-slate-300">{DHP_BRAND_MEMORY.brand.positioning}</p><div className="mt-4 flex flex-wrap gap-2">{DHP_BRAND_MEMORY.brand.tone.map((tone) => <span key={tone} className="rounded-full border border-amber-400/20 bg-amber-400/5 px-3 py-1 text-xs text-amber-200">{tone}</span>)}</div></div>
           <div className="dhp-panel rounded-2xl p-6"><h3 className="text-xl font-bold text-white">Quy tắc điều phối chung</h3><div className="mt-4 space-y-3">{AI_ROUTING_RULES.principles.map((rule, index) => <div key={rule} className="flex gap-3 text-sm leading-6 text-slate-300"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-400/10 font-bold text-amber-300">{index + 1}</span>{rule}</div>)}</div></div>
+        </section>
+
+        <section className="dhp-panel rounded-2xl p-6">
+          <div className="flex items-start gap-3"><BrainCircuit className="mt-1 h-6 w-6 text-violet-300" /><div><h3 className="text-xl font-bold text-white">DHP Master Skill Pack</h3><p className="mt-1 text-sm text-slate-400">{MASTER_SKILLS.length} skill có version, quality gate và kiểm định JSON; đây là instruction engineering có kiểm soát, không giả mạo fine-tuning mô hình.</p></div></div>
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">{MASTER_SKILLS.map((skill) => <article key={skill.id} className="rounded-xl border border-white/10 bg-slate-950/30 p-4"><p className="text-sm font-bold text-violet-200">{skill.name}</p><p className="mt-1 text-[11px] text-slate-500">{skill.id} · v{skill.version}</p><p className="mt-3 text-xs leading-5 text-slate-300">{skill.summary}</p></article>)}</div>
         </section>
       </div>
     </div>

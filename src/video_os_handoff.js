@@ -1,7 +1,7 @@
 import { SCHEDULER_HANDOFF_STORAGE_KEY } from './scheduler_handoff';
 
 const MAX_HANDOFF_BYTES = 64 * 1024;
-const SUPPORTED_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok']);
+const SUPPORTED_PLATFORMS = new Set(['facebook', 'instagram', 'tiktok', 'linkedin', 'pinterest', 'youtube']);
 
 function decodeBase64Url(value) {
   if (!value || value.length > MAX_HANDOFF_BYTES * 2) throw new Error('Video OS handoff quá lớn');
@@ -57,6 +57,7 @@ export function consumeVideoOsHandoff() {
       platforms,
       publishAt: payload.publishAt || null,
       content: String(payload.content || '').slice(0, 50_000),
+      imageUrl: normalizePublicUrl(payload.imageUrl),
       videoUrl: normalizePublicUrl(payload.videoUrl),
       source: 'video-os',
       sourceJobId: String(payload.sourceJobId || campaignId).trim().slice(0, 160),
