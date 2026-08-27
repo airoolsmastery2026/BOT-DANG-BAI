@@ -5,25 +5,35 @@ const { pathToFileURL } = require('node:url');
 const {
   app,
   BrowserWindow,
+  ipcMain,
   Menu,
   nativeImage,
+  safeStorage,
   session,
   shell,
   Tray,
+  utilityProcess,
 } = require('electron');
+const { createDesktopPublishingWorker } = require('./publishing-worker-manager.cjs');
 
 const APP_ID = 'vn.daihaiphat.botdangbai';
 const APP_TITLE = 'BOT ĐĂNG BÀI';
 const isSmokeTest = process.argv.includes('--smoke-test');
+if (isSmokeTest) {
+  app.setPath('userData', path.join(app.getPath('temp'), `bot-dang-bai-smoke-${process.pid}`));
+}
 const entryPath = path.join(__dirname, '..', 'build', 'index.html');
 const entryUrl = pathToFileURL(entryPath).toString();
 const iconPath = path.join(__dirname, 'assets', 'icon.png');
+const preloadPath = path.join(__dirname, 'preload.cjs');
+const publishingWorkerEntry = path.join(__dirname, '..', 'server', 'publishing-worker.js');
 const allowedExternalProtocols = new Set(['https:']);
 
 let mainWindow;
 let tray;
 let isQuitting = false;
 let smokeTimer;
+let publishingWorker;
 
 const isSafeExternalUrl = (value) => {
   try {
@@ -123,6 +133,45 @@ const finishSmokeTest = (exitCode, message) => {
   app.exit(exitCode);
 };
 
+const serializeWorkerError = (error) => ({
+  message: error instanceof Error ? error.message : String(error || 'Publishing Worker error'),
+  code: error?.code || 'DESKTOP_WORKER_ERROR',
+  ...(error?.existingJobId ? { existingJobId: error.existingJobId } : {}),
+});
+
+const assertTrustedIpcSender = (event) => {
+  const senderUrl = String(event?.senderFrame?.url || '');
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents
+    || (senderUrl !== entryUrl && !senderUrl.startsWith(`${entryUrl}#`))) {
+    const error = new Error('IPC sender không được phép.');
+    error.code = 'UNTRUSTED_IPC_SENDER';
+    throw error;
+  }
+};
+
+const installPublishingWorkerIpc = () => {
+  const handle = (channel, operation) => {
+    ipcMain.handle(channel, async (event, ...args) => {
+      try {
+        assertTrustedIpcSender(event);
+        await publishingWorker.start();
+        return { ok: true, data: await operation(...args) };
+      } catch (error) {
+        return { ok: false, error: serializeWorkerError(error) };
+      }
+    });
+  };
+
+  handle('publishing-worker:health', () => publishingWorker.health());
+  handle('publishing-worker:save-account', (platform, credentials) => publishingWorker.saveAccount(platform, credentials));
+  handle('publishing-worker:verify-account', (platform) => publishingWorker.verifyAccount(platform));
+  handle('publishing-worker:remove-account', (platform) => publishingWorker.removeAccount(platform));
+  handle('publishing-worker:create-job', (job) => publishingWorker.createJob(job));
+  handle('publishing-worker:list-jobs', () => publishingWorker.listJobs());
+  handle('publishing-worker:process-jobs', () => publishingWorker.processJobs());
+  handle('publishing-worker:retry-job', (jobId) => publishingWorker.retryJob(jobId));
+};
+
 const createWindow = () => {
   mainWindow = new BrowserWindow({
     title: APP_TITLE,
@@ -135,6 +184,7 @@ const createWindow = () => {
     backgroundColor: '#070b14',
     icon: iconPath,
     webPreferences: {
+      preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -171,6 +221,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', showMainWindow);
   app.on('before-quit', () => {
     isQuitting = true;
+    publishingWorker?.stop();
   });
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin' && isQuitting) app.quit();
@@ -179,8 +230,16 @@ if (!app.requestSingleInstanceLock()) {
     if (mainWindow) showMainWindow();
     else createWindow();
   });
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     installDesktopSecurity();
+    publishingWorker = createDesktopPublishingWorker({
+      app,
+      safeStorage,
+      utilityProcess,
+      workerEntry: publishingWorkerEntry,
+    });
+    installPublishingWorkerIpc();
+    await publishingWorker.start();
     createWindow();
     if (!isSmokeTest) createTray();
     else smokeTimer = setTimeout(() => finishSmokeTest(1, 'Desktop smoke test timed out.'), 20_000);

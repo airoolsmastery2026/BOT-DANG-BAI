@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["stageId", "masterSkill", "instruction"],
+  "properties": {
+    "stageId": { "type": "string" },
+    "masterSkill": { "type": "object" },
+    "instruction": { "type": "object" },
+    "assessment": { "type": ["object", "null"] }
+  },
+  "additionalProperties": false
+}

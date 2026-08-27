@@ -1,0 +1,4 @@
+interface:
+  display_name: "DHP Master Content System"
+  short_description: "Điều phối nội dung đa nền tảng có kiểm soát"
+  default_prompt: "Use $dhp-master-content-system to build and quality-check a complete social content workflow."

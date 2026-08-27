@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["stageId", "payload"],
+  "properties": {
+    "stageId": { "enum": ["strategy", "research", "copy", "adapt", "creative", "quality", "publish", "analytics"] },
+    "payload": { "type": "object" },
+    "output": { "type": "object" }
+  },
+  "additionalProperties": false
+}

@@ -11,7 +11,12 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 
 const REQUIRED_FILES = [
   'src/PlatformConnections.jsx',
+  'src/PersistentPlatformConnections.jsx',
   'src/platform_connection_catalog.js',
+  'src/persistent_platform_connection_catalog.js',
+  'src/desktop_publishing_worker.js',
+  'src/master_skill_catalog.js',
+  'src/master_content_skill_runtime.js',
   'src/platform_credentials.js',
   'src/platform_connection_service.js',
   'src/meta_publishing_api.js',
@@ -33,6 +38,11 @@ const REQUIRED_FILES = [
   'server/publishing-worker-linkedin.js',
   'server/publishing-worker-youtube.js',
   'server/publishing-worker.js',
+  'desktop/preload.cjs',
+  'desktop/publishing-worker-manager.cjs',
+  'skills/registry.json',
+  'skills/dhp-master-content-system/SKILL.md',
+  'skills/dhp-master-content-system/metadata.json',
   'public/worker-admin.html',
   'public/worker-platforms.html',
 ];

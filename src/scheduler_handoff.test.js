@@ -26,7 +26,7 @@ describe('scheduler handoff', () => {
       },
     });
 
-    expect(handoff.platforms).toEqual(['facebook', 'tiktok']);
+    expect(handoff.platforms).toEqual(['facebook', 'linkedin', 'tiktok']);
     expect(handoff.hasImageJob).toBe(true);
     expect(handoff.hasVideoJob).toBe(true);
     expect(handoff.scheduleSlots).toEqual(['2026-08-03T12:30:00.000Z']);

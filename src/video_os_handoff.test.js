@@ -17,7 +17,7 @@ test('consumes a valid handoff and removes it from the browser URL', () => {
   const encoded = encodeBase64Url({
     campaignId: 'campaign-1',
     topic: 'Video test',
-    platforms: ['TikTok', 'facebook', 'unknown'],
+    platforms: ['TikTok', 'facebook', 'youtube', 'unknown'],
     content: 'Caption',
     videoUrl: 'https://example.com/video.mp4',
     sourceJobId: 'job-1',
@@ -29,7 +29,7 @@ test('consumes a valid handoff and removes it from the browser URL', () => {
   expect(handoff).toMatchObject({
     campaignId: 'campaign-1',
     topic: 'Video test',
-    platforms: ['tiktok', 'facebook'],
+    platforms: ['tiktok', 'facebook', 'youtube'],
     content: 'Caption',
     source: 'video-os',
     sourceJobId: 'job-1',
@@ -66,7 +66,7 @@ test('rejects unsupported platforms and non-http media URLs', () => {
   const encoded = encodeBase64Url({
     campaignId: 'campaign-3',
     topic: 'Invalid media',
-    platforms: ['linkedin'],
+    platforms: ['zalo'],
     videoUrl: ['java', 'script:alert(1)'].join(''),
   });
   window.history.replaceState(null, '', `#/scheduler?videoos=${encoded}`);
